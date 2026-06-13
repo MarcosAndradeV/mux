@@ -78,7 +78,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "gss"
 version = "0.1.0"
-source = "git+https://github.com/MarcosAndradeV/GSS#632af0837847b4b9e414690eb14360397158d67e"
+source = "git+https://github.com/MarcosAndradeV/GSS#0133fddc693c9df6205bb3d9d4f54c31679f4c57"
 dependencies = [
  "lex-just-parse",
 ]
@@ -131,6 +131,13 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
+name = "music-visualizer"
+version = "0.1.0"
+dependencies = [
+ "muxui",
+]
 
 [[package]]
 name = "muxui"

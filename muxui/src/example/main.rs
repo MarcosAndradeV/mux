@@ -1,11 +1,10 @@
 use std::time::{Instant, SystemTime};
 
 use muxui::*;
-use raylib::*;
 
 fn main() {
-    App::init(800, 600, "Test", Context::new())
-        .set_style_file("data/style.gss")
+    App::init(800, 600, "Test", Context::new)
+        .set_style_file("data/example/style.gss")
         .on_update(update)
         .on_drawing_mode(draw)
         .run();
@@ -14,13 +13,17 @@ fn main() {
 struct Context {
     show_clock: bool,
     timer: Instant,
+    penger: TextureElement,
 }
 
 impl Context {
     fn new() -> Self {
+        let penger = TextureElement::load_texture("data/example/penger.png")
+            .expect("Could not load texture from \"data/example/penger.png\"");
         Self {
             show_clock: true,
             timer: Instant::now(),
+            penger,
         }
     }
 }
@@ -36,17 +39,19 @@ fn update(ctx: &mut Context) {
 
 fn draw(ctx: &Context, style: &Style) {
     clear_background(DARKGRAY);
-    place_element(style, "message", TextElement::new("Hello, world"));
+    TextElement::new("Hello, world").place(style, "message");
     if ctx.show_clock {
         let secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
             - 3 * 3600;
-        place_element(style, "clock", TimerElement(secs));
+        TimerElement(secs).place(style, "clock");
     } else {
-        place_element(style, "timer", TimerElement(ctx.timer.elapsed().as_secs()));
+        TimerElement(ctx.timer.elapsed().as_secs()).place(style, "timer");
     }
+
+    ctx.penger.place(style, "penger");
 }
 
 pub struct TimerElement(pub u64);

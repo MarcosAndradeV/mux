@@ -1,7 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use gss::{Gss, load_gss_from_file};
-use raylib::*;
+
+pub use raylib::*;
+
+// raylib helpers commit it back later!
+use std::ffi::CString;
+fn load_texture(path: CString) -> Texture {
+    unsafe { LoadTexture(path.as_ptr()) }
+}
+fn get_color(hex: u32) -> Color {
+    unsafe { GetColor(hex) }
+}
 
 pub type Style = Gss;
 
@@ -15,9 +25,14 @@ pub struct App<Context> {
 }
 
 impl<Context> App<Context> {
-    pub fn init(width: i32, height: i32, title: &str, context: Context) -> App<Context> {
+    pub fn init<F: FnOnce() -> Context + 'static>(
+        width: i32,
+        height: i32,
+        title: &str,
+        init_context: F,
+    ) -> App<Context> {
         init_window(width, height, cstr!(title));
-        App::new(context)
+        App::new(init_context())
     }
 
     fn new(context: Context) -> Self {
@@ -82,6 +97,7 @@ impl<Context> App<Context> {
             drawing_mode.as_ref().inspect(|f| f(&context, &style));
             end_drawing();
         }
+        drop(context);
         close_window();
     }
 }
@@ -102,65 +118,36 @@ fn load_style<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     fallback
 }
 
-pub fn place_element(style: &Gss, name: &str, element: impl Element) {
-    let factor = get_f32_field(style, name, "factor", 1.0);
-
-    // 1. Resolve raw coordinates (support both % and absolute pixels)
-    let mut x = get_position_field(style, name, "left", get_screen_width() as f32, 0.0);
-    let mut y = get_position_field(style, name, "top", get_screen_height() as f32, 0.0);
-
-    // 2. Measure the element bounds
-    let size = element.measure(factor);
-
-    // 3. Apply alignment offsets
-    if let Some(align) = style.get::<String>(&[name, "align"]) {
-        match align.as_str() {
-            "center" => x -= size.x / 2.0,
-            "right" => x -= size.x,
-            _ => {} // default is left
-        }
-    }
-
-    if let Some(valign) = style.get::<String>(&[name, "valign"]) {
-        match valign.as_str() {
-            "top" => {}
-            "bottom" => y -= size.y,
-            _ => y -= size.y / 2.0,// default is center
-        }
-    }
-
-    let color = get_color_field(style, &[name, "color"]);
-    element.draw(Vector2 { x, y }, factor, color);
-}
-
 fn get_color_field(style: &Style, path: &[&str]) -> Color {
     if let Some(string) = style.get::<String>(path) {
         map_color(string)
-    } else if let Some(hex) = style.get::<i32>(path) {
+    } else if let Some(hex) = style.get::<u32>(path) {
         get_color(*hex)
     } else {
         BLANK
     }
 }
 
-fn get_color(hex: i32) -> Color {
-    unsafe { GetColor(hex as u32) }
-}
-
 fn get_f32_field(style: &Style, name: &str, field: &str, default: f32) -> f32 {
     if let Some(&val) = style.get::<f32>(&[name, field]) {
         val
-    } else if let Some(&val) = style.get::<i32>(&[name, field]) {
+    } else if let Some(&val) = style.get::<u32>(&[name, field]) {
         val as f32
     } else {
         default
     }
 }
 
-fn get_position_field(style: &Style, name: &str, field: &str, screen_dim: f32, default: f32) -> f32 {
+fn get_position_field(
+    style: &Style,
+    name: &str,
+    field: &str,
+    screen_dim: f32,
+    default: f32,
+) -> f32 {
     if let Some(&val) = style.get::<f32>(&[name, field]) {
         val * screen_dim
-    } else if let Some(&val) = style.get::<i32>(&[name, field]) {
+    } else if let Some(&val) = style.get::<u32>(&[name, field]) {
         val as f32
     } else {
         default
@@ -200,6 +187,37 @@ fn map_color(string: &str) -> Color {
 pub trait Element {
     fn draw(&self, position: Vector2, factor: f32, color: Color);
     fn measure(&self, factor: f32) -> Vector2;
+    fn place(&self, style: &Gss, name: &str) {
+        let factor = get_f32_field(style, name, "factor", 1.0);
+
+        // 1. Resolve raw coordinates (support both % and absolute pixels)
+        let mut x = get_position_field(style, name, "left", get_screen_width() as f32, 0.0);
+        let mut y = get_position_field(style, name, "top", get_screen_height() as f32, 0.0);
+
+        // 2. Measure the element bounds
+        let size = self.measure(factor);
+
+        // 3. Apply alignment offsets
+        if let Some(align) = style.get::<String>(&[name, "align"]) {
+            match align.as_str() {
+                "center" => x -= size.x / 2.0,
+                "right" => x -= size.x,
+                _ => {} // default is left
+            }
+        }
+
+        if let Some(valign) = style.get::<String>(&[name, "valign"]) {
+            match valign.as_str() {
+                "middle" | "center" => y -= size.y / 2.0,
+                "top" => {}
+                "bottom" => y -= size.y,
+                _ => {} // default to top-alignment
+            }
+        }
+
+        let color = get_color_field(style, &[name, "color"]);
+        self.draw(Vector2 { x, y }, factor, color);
+    }
 }
 
 pub struct TextElement {
@@ -227,6 +245,44 @@ impl Element for TextElement {
         Vector2 {
             x: measure_text(cstr!(&self.text), factor as _) as f32,
             y: factor,
+        }
+    }
+}
+
+pub struct TextureElement(Texture2D);
+
+impl TextureElement {
+    pub fn load_texture(path: impl AsRef<str>) -> Option<Self> {
+        let texture = load_texture(cstr!(path.as_ref()));
+        unsafe {
+            if IsTextureValid(texture) {
+                Some(Self(texture))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+impl Drop for TextureElement {
+    fn drop(&mut self) {
+        unsafe {
+            if IsTextureValid(self.0) {
+                UnloadTexture(self.0);
+            }
+        }
+    }
+}
+
+impl Element for TextureElement {
+    fn draw(&self, position: Vector2, factor: f32, color: Color) {
+        unsafe { DrawTextureEx(self.0, position, 0.0, factor, color) };
+    }
+
+    fn measure(&self, factor: f32) -> Vector2 {
+        Vector2 {
+            x: self.0.width as f32 * factor,
+            y: self.0.height as f32 * factor,
         }
     }
 }
