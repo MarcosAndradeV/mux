@@ -1,0 +1,13 @@
+[package]
+name = "muxui"
+version = "0.1.0"
+edition = "2024"
+default-run = "example"
+
+[dependencies]
+gss = { git = "https://github.com/MarcosAndradeV/GSS", version = "0.1.0", features = ["interning"] }
+raylib = { git = "https://github.com/MarcosAndradeV/raylib-rs", version = "0.1.0" }
+
+[[bin]]
+name = "example"
+path = "src/bin/main.rs"
