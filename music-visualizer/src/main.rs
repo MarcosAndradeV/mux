@@ -1,7 +1,7 @@
 use muxui::*;
 
 fn main() {
-    AppBuilder::init(800, 600, "Music Visualizer", Context::new)
+    App::init(800, 600, "Music Visualizer", Context::new)
         .set_style_file("data/music-visualizer/style.gss")
         .set_audio_device()
         .on_update(update)
@@ -11,7 +11,7 @@ fn main() {
 
 struct Context {
     music: MusicResource,
-    is_music_playing: bool
+    is_music_playing: bool,
 }
 
 impl Context {
@@ -20,7 +20,10 @@ impl Context {
             .expect("Cannot load \"data/music-visualizer/Tower of Dreams.mp3\"");
         music.play();
         music.set_volume(0.8);
-        Self { music, is_music_playing: true }
+        Self {
+            music,
+            is_music_playing: true,
+        }
     }
 }
 

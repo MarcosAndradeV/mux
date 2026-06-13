@@ -28,7 +28,7 @@ fn close_audio_device() {
 
 pub type Style = Gss;
 
-struct App2<Context> {
+struct Manager<Context> {
     before_loop: Box<dyn Fn() + 'static>,
     on_update: Box<dyn Fn(&mut Context) + 'static>,
     drawing_mode: Box<dyn Fn(&Context, &Style) + 'static>,
@@ -51,7 +51,7 @@ pub struct App<Context> {
     init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
-impl<Context> AppBuilder<Context> {
+impl<Context> App<Context> {
     pub fn init<F: FnOnce() -> Context + 'static>(
         width: i32,
         height: i32,
@@ -105,7 +105,7 @@ impl<Context> AppBuilder<Context> {
         self
     }
 
-    fn build(self) -> App<Context> {
+    fn build(self) -> Manager<Context> {
         let Self {
             width,
             height,
@@ -123,7 +123,7 @@ impl<Context> AppBuilder<Context> {
             init_audio_device();
         }
 
-        App {
+        Manager {
             before_loop: before_loop.unwrap_or(Box::new(|| {})),
             on_update: on_update.unwrap_or(Box::new(|_| {})),
             drawing_mode: drawing_mode.unwrap_or(Box::new(|_, _| {})),
@@ -135,9 +135,9 @@ impl<Context> AppBuilder<Context> {
     }
 }
 
-impl<Context> AppBuilder<Context> {
+impl<Context> App<Context> {
     pub fn run(self) {
-        let App {
+        let Manager {
             before_loop,
             on_update,
             drawing_mode,
@@ -352,6 +352,9 @@ impl Element for TextureElement {
 pub struct MusicResource(Music);
 
 impl MusicResource {
+    pub fn into_music(self) -> Music {
+        self.0
+    }
     pub fn load_music_stream(path: impl AsRef<str>) -> Option<Self> {
         let music = load_music_stream(cstr!(path.as_ref()));
         unsafe {
