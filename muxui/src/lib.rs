@@ -12,38 +12,69 @@ fn load_texture(path: CString) -> Texture {
 fn get_color(hex: u32) -> Color {
     unsafe { GetColor(hex) }
 }
+fn load_music_stream(path: CString) -> Music {
+    unsafe { LoadMusicStream(path.as_ptr()) }
+}
+fn init_audio_device() {
+    unsafe {
+        InitAudioDevice();
+    }
+}
+fn close_audio_device() {
+    unsafe {
+        CloseAudioDevice();
+    }
+}
 
 pub type Style = Gss;
 
+struct App2<Context> {
+    before_loop: Box<dyn Fn() + 'static>,
+    on_update: Box<dyn Fn(&mut Context) + 'static>,
+    drawing_mode: Box<dyn Fn(&Context, &Style) + 'static>,
+    style_file: Option<PathBuf>,
+    fps: i32,
+    audio_device: bool,
+    context: Context,
+}
+
 pub struct App<Context> {
+    width: i32,
+    height: i32,
+    title: String,
     before_loop: Option<Box<dyn Fn() + 'static>>,
     on_update: Option<Box<dyn Fn(&mut Context) + 'static>>,
     drawing_mode: Option<Box<dyn Fn(&Context, &Style) + 'static>>,
     style_file: Option<PathBuf>,
     fps: i32,
-    context: Context,
+    audio_device: bool,
+    init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
-impl<Context> App<Context> {
+impl<Context> AppBuilder<Context> {
     pub fn init<F: FnOnce() -> Context + 'static>(
         width: i32,
         height: i32,
-        title: &str,
+        title: impl Into<String>,
         init_context: F,
-    ) -> App<Context> {
-        init_window(width, height, cstr!(title));
-        App::new(init_context())
-    }
-
-    fn new(context: Context) -> Self {
+    ) -> Self {
         Self {
+            width,
+            height,
+            title: title.into(),
             before_loop: None,
             on_update: None,
             drawing_mode: None,
             style_file: None,
             fps: 60,
-            context,
+            audio_device: false,
+            init_context: Box::new(init_context),
         }
+    }
+
+    pub fn set_audio_device(mut self) -> Self {
+        self.audio_device = true;
+        self
     }
 
     pub fn before_loop<F: Fn() + 'static>(mut self, f: F) -> Self {
@@ -73,9 +104,38 @@ impl<Context> App<Context> {
         self.fps = fps;
         self
     }
+
+    fn build(self) -> App<Context> {
+        let Self {
+            width,
+            height,
+            title,
+            before_loop,
+            on_update,
+            drawing_mode,
+            style_file,
+            fps,
+            audio_device,
+            init_context,
+        } = self;
+        init_window(width, height, cstr!(&title));
+        if audio_device {
+            init_audio_device();
+        }
+
+        App {
+            before_loop: before_loop.unwrap_or(Box::new(|| {})),
+            on_update: on_update.unwrap_or(Box::new(|_| {})),
+            drawing_mode: drawing_mode.unwrap_or(Box::new(|_, _| {})),
+            style_file,
+            fps,
+            audio_device,
+            context: init_context(),
+        }
+    }
 }
 
-impl<Context> App<Context> {
+impl<Context> AppBuilder<Context> {
     pub fn run(self) {
         let App {
             before_loop,
@@ -83,21 +143,25 @@ impl<Context> App<Context> {
             drawing_mode,
             style_file,
             fps,
+            audio_device,
             mut context,
-        } = self;
+        } = self.build();
         set_target_fps(fps);
         let mut style = load_style(style_file.as_ref(), Gss::new());
-        before_loop.as_ref().inspect(|f| f());
+        before_loop();
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
                 style = load_style(style_file.as_ref(), style);
             }
-            on_update.as_ref().inspect(|f| f(&mut context));
+            on_update(&mut context);
             begin_drawing();
-            drawing_mode.as_ref().inspect(|f| f(&context, &style));
+            drawing_mode(&context, &style);
             end_drawing();
         }
         drop(context);
+        if audio_device {
+            close_audio_device();
+        }
         close_window();
     }
 }
@@ -267,9 +331,7 @@ impl TextureElement {
 impl Drop for TextureElement {
     fn drop(&mut self) {
         unsafe {
-            if IsTextureValid(self.0) {
-                UnloadTexture(self.0);
-            }
+            UnloadTexture(self.0);
         }
     }
 }
@@ -283,6 +345,54 @@ impl Element for TextureElement {
         Vector2 {
             x: self.0.width as f32 * factor,
             y: self.0.height as f32 * factor,
+        }
+    }
+}
+
+pub struct MusicResource(Music);
+
+impl MusicResource {
+    pub fn load_music_stream(path: impl AsRef<str>) -> Option<Self> {
+        let music = load_music_stream(cstr!(path.as_ref()));
+        unsafe {
+            if IsMusicValid(music) {
+                Some(Self(music))
+            } else {
+                None
+            }
+        }
+    }
+    pub fn set_volume(&self, volume: f32) {
+        unsafe { SetMusicVolume(self.0, volume) };
+    }
+    pub fn play(&self) {
+        unsafe {
+            PlayMusicStream(self.0);
+        }
+    }
+    pub fn update(&self) {
+        unsafe {
+            UpdateMusicStream(self.0);
+        }
+    }
+
+    pub fn pause(&self) {
+        unsafe {
+            PauseMusicStream(self.0);
+        }
+    }
+
+    pub fn resume(&self) {
+        unsafe {
+            ResumeMusicStream(self.0);
+        }
+    }
+}
+
+impl Drop for MusicResource {
+    fn drop(&mut self) {
+        unsafe {
+            UnloadMusicStream(self.0);
         }
     }
 }
