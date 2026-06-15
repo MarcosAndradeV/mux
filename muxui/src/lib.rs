@@ -7,6 +7,48 @@ pub use raylib::*;
 
 // raylib helpers commit it back later!
 
+pub fn trace_log(level: TraceLogLevel, message: &str) {
+    let c_msg = std::ffi::CString::new(message).unwrap_or_default();
+    unsafe {
+        TraceLog(level as std::os::raw::c_int, c_msg.as_ptr());
+    }
+}
+
+#[macro_export]
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::TraceLogLevel_LOG_INFO, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_warn {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::TraceLogLevel_LOG_WARNING, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::TraceLogLevel_LOG_ERROR, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_debug {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::TraceLogLevel_LOG_DEBUG, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_trace {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::TraceLogLevel_LOG_TRACE, &format!($($arg)*))
+    };
+}
+
 const DEFAULT_ROTATION: f32 = 0.0;
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 const DEFAULT_SPACING: f32 = 2.0;
@@ -90,9 +132,11 @@ impl<Context> App<Context> {
             audio_device,
             init_context,
         } = self;
+        log_info!("MUXUI: Initializing window: {}x{} - \"{}\"", width, height, title);
         unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
         init_window(width, height, cstr!(&title));
         if audio_device {
+            log_info!("MUXUI: Initializing audio device");
             init_audio_device();
         }
 
@@ -108,6 +152,7 @@ impl<Context> App<Context> {
 
 impl<Context> App<Context> {
     pub fn run(self) {
+        log_info!("MUXUI: Starting App run loop");
         let Manager {
             update,
             style_file,
@@ -136,7 +181,10 @@ impl<Context> App<Context> {
                     }
                 }) {
                     if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
+                        log_info!("MUXUI: File watcher set up for style file: {}", abs_path.display());
                         _watcher = Some(w);
+                    } else {
+                        log_warn!("MUXUI: Failed to watch directory for style file: {}", parent.display());
                     }
                 }
             }
@@ -144,6 +192,7 @@ impl<Context> App<Context> {
 
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
+                log_info!("MUXUI: F5 pressed. Reloading style...");
                 style = load_style(style_file.as_ref(), style);
             }
 
@@ -152,25 +201,32 @@ impl<Context> App<Context> {
                 should_reload = true;
             }
             if should_reload {
+                log_info!("MUXUI: Style file modified. Reloading style...");
                 style = load_style(style_file.as_ref(), style);
             }
 
             update(&mut context, &style);
         }
+        log_info!("MUXUI: Window close requested. Cleaning up...");
         drop(context);
         if audio_device {
+            log_info!("MUXUI: Closing audio device");
             close_audio_device();
         }
         close_window();
+        log_info!("MUXUI: App terminated");
     }
 }
 
 fn load_style<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     if let Some(style_file) = style_file.as_ref() {
         match load_gss_from_file(style_file) {
-            Ok(ok) => return ok,
+            Ok(ok) => {
+                log_info!("MUXUI: Style loaded successfully from {}", style_file.as_ref().display());
+                return ok;
+            }
             Err(err) => {
-                println!(
+                log_warn!(
                     "Cannot load file {} because of {}",
                     style_file.as_ref().display(),
                     err
@@ -358,10 +414,13 @@ pub struct TextureElement(Texture2D);
 
 impl TextureElement {
     pub fn load_from_file(path: impl AsRef<str>) -> Option<Self> {
-        let texture = load_texture(cstr!(path.as_ref()));
+        let path_str = path.as_ref();
+        let texture = load_texture(cstr!(path_str));
         if is_texture_valid(texture) {
+            log_info!("MUXUI: Successfully loaded texture from \"{}\"", path_str);
             Some(Self(texture))
         } else {
+            log_error!("MUXUI: Failed to load texture from \"{}\"", path_str);
             None
         }
     }
