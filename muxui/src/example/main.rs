@@ -6,7 +6,6 @@ struct Context {
     show_clock: bool,
     timer: Instant,
     penger: ButtonElement<TextureElement>,
-    message: TextElement,
 }
 
 fn main() {
@@ -17,7 +16,6 @@ fn main() {
             show_clock: true,
             timer: Instant::now(),
             penger: ButtonElement::new(penger),
-            message: TextElement::new("Hello world"),
         }
     })
     .set_style_file("data/example/style.gss")
@@ -53,8 +51,9 @@ fn update(ctx: &mut Context, style: &Style) {
         clock_elem = Some(TextElement::new(format_time(secs)));
     }
 
+    let message = TextElement::new("Hello world");
     let mut menu_children: Vec<(&str, &dyn Element)> =
-        vec![("message", &ctx.message), ("timer", &timer_elem)];
+        vec![("message", &message), ("timer", &timer_elem)];
 
     if let Some(ref elem) = clock_elem {
         menu_children.push(("clock", elem));
