@@ -5,33 +5,46 @@ use gss::{Gss, load_gss_from_file};
 pub use raylib::*;
 
 // raylib helpers commit it back later!
-use std::ffi::CString;
-fn load_texture(path: CString) -> Texture {
-    unsafe { LoadTexture(path.as_ptr()) }
+// use std::ffi::CString;
+pub fn check_collision_circle_rec(center: Vector2, radius: f32, rec: Rectangle) -> bool {
+    unsafe { CheckCollisionCircleRec(center, radius, rec) }
 }
-fn get_color(hex: u32) -> Color {
-    unsafe { GetColor(hex) }
+
+pub fn is_texture_valid(texture: Texture2D) -> bool {
+    unsafe { IsTextureValid(texture) }
 }
-fn load_music_stream(path: CString) -> Music {
-    unsafe { LoadMusicStream(path.as_ptr()) }
-}
-fn init_audio_device() {
+
+pub fn unload_texture(texture: Texture2D) {
     unsafe {
-        InitAudioDevice();
+        UnloadTexture(texture);
     }
 }
-fn close_audio_device() {
+
+pub fn draw_texture_ex(
+    texture: Texture2D,
+    position: Vector2,
+    rotation: f32,
+    scale: f32,
+    tint: Color,
+) {
     unsafe {
-        CloseAudioDevice();
+        DrawTextureEx(texture, position, rotation, scale, tint);
     }
 }
+
+const DEFAULT_ROTATION: f32 = 0.0;
+const DEFAULT_FONT_SIZE: f32 = 20.0;
+const DEFAULT_SPACING: f32 = 2.0;
+const DEFAULT_FACTOR: f32 = 1.0;
+const DEFAULT_FPS: i32 = 60;
+
+const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
+const MOUSE_CLICK_RADIUS: f32 = 2.0;
 
 pub type Style = Gss;
 
 struct Manager<Context> {
-    before_loop: Box<dyn Fn() + 'static>,
-    on_update: Box<dyn Fn(&mut Context) + 'static>,
-    drawing_mode: Box<dyn Fn(&Context, &Style) + 'static>,
+    update: Box<dyn Fn(&mut Context, &Style, bool) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -42,9 +55,7 @@ pub struct App<Context> {
     width: i32,
     height: i32,
     title: String,
-    before_loop: Option<Box<dyn Fn() + 'static>>,
-    on_update: Option<Box<dyn Fn(&mut Context) + 'static>>,
-    drawing_mode: Option<Box<dyn Fn(&Context, &Style) + 'static>>,
+    update: Option<Box<dyn Fn(&mut Context, &Style, bool) + 'static>>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -62,11 +73,9 @@ impl<Context> App<Context> {
             width,
             height,
             title: title.into(),
-            before_loop: None,
-            on_update: None,
-            drawing_mode: None,
+            update: None,
             style_file: None,
-            fps: 60,
+            fps: DEFAULT_FPS,
             audio_device: false,
             init_context: Box::new(init_context),
         }
@@ -77,21 +86,11 @@ impl<Context> App<Context> {
         self
     }
 
-    pub fn before_loop<F: Fn() + 'static>(mut self, f: F) -> Self {
-        self.before_loop = Some(Box::new(f));
-        self
-    }
-
-    pub fn on_drawing_mode<F: for<'a, 'b> Fn(&'a Context, &'b Style) + 'static>(
+    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style, bool) + 'static>(
         mut self,
         f: F,
     ) -> Self {
-        self.drawing_mode = Some(Box::new(f));
-        self
-    }
-
-    pub fn on_update<F: for<'a> Fn(&'a mut Context) + 'static>(mut self, f: F) -> Self {
-        self.on_update = Some(Box::new(f));
+        self.update = Some(Box::new(f));
         self
     }
 
@@ -110,9 +109,7 @@ impl<Context> App<Context> {
             width,
             height,
             title,
-            before_loop,
-            on_update,
-            drawing_mode,
+            update,
             style_file,
             fps,
             audio_device,
@@ -124,9 +121,7 @@ impl<Context> App<Context> {
         }
 
         Manager {
-            before_loop: before_loop.unwrap_or(Box::new(|| {})),
-            on_update: on_update.unwrap_or(Box::new(|_| {})),
-            drawing_mode: drawing_mode.unwrap_or(Box::new(|_, _| {})),
+            update: update.unwrap_or(Box::new(|_, _, _| {})),
             style_file,
             fps,
             audio_device,
@@ -138,9 +133,7 @@ impl<Context> App<Context> {
 impl<Context> App<Context> {
     pub fn run(self) {
         let Manager {
-            before_loop,
-            on_update,
-            drawing_mode,
+            update,
             style_file,
             fps,
             audio_device,
@@ -148,15 +141,14 @@ impl<Context> App<Context> {
         } = self.build();
         set_target_fps(fps);
         let mut style = load_style(style_file.as_ref(), Gss::new());
-        before_loop();
+        let mut reload = true;
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
                 style = load_style(style_file.as_ref(), style);
+                reload = true;
             }
-            on_update(&mut context);
-            begin_drawing();
-            drawing_mode(&context, &style);
-            end_drawing();
+            update(&mut context, &style, reload);
+            reload = false;
         }
         drop(context);
         if audio_device {
@@ -182,7 +174,7 @@ fn load_style<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     fallback
 }
 
-fn get_color_field(style: &Style, path: &[&str]) -> Color {
+pub fn get_color_field(style: &Style, path: &[&str]) -> Color {
     if let Some(string) = style.get::<String>(path) {
         map_color(string)
     } else if let Some(hex) = style.get::<u32>(path) {
@@ -192,7 +184,15 @@ fn get_color_field(style: &Style, path: &[&str]) -> Color {
     }
 }
 
-fn get_f32_field(style: &Style, name: &str, field: &str, default: f32) -> f32 {
+pub fn get_bool_field(style: &Style, name: &str, field: &str, default: bool) -> bool {
+    if let Some(&val) = style.get::<bool>(&[name, field]) {
+        val
+    } else {
+        default
+    }
+}
+
+pub fn get_f32_field(style: &Style, name: &str, field: &str, default: f32) -> f32 {
     if let Some(&val) = style.get::<f32>(&[name, field]) {
         val
     } else if let Some(&val) = style.get::<u32>(&[name, field]) {
@@ -202,15 +202,9 @@ fn get_f32_field(style: &Style, name: &str, field: &str, default: f32) -> f32 {
     }
 }
 
-fn get_position_field(
-    style: &Style,
-    name: &str,
-    field: &str,
-    screen_dim: f32,
-    default: f32,
-) -> f32 {
+fn get_position_field(style: &Style, name: &str, field: &str, scale: f32, default: f32) -> f32 {
     if let Some(&val) = style.get::<f32>(&[name, field]) {
-        val * screen_dim
+        val * scale
     } else if let Some(&val) = style.get::<u32>(&[name, field]) {
         val as f32
     } else {
@@ -249,99 +243,133 @@ fn map_color(string: &str) -> Color {
 }
 
 pub trait Element {
-    fn draw(&self, position: Vector2, factor: f32, color: Color);
-    fn measure(&self, factor: f32) -> Vector2;
-    fn place(&self, style: &Gss, name: &str) {
-        let factor = get_f32_field(style, name, "factor", 1.0);
-
-        // 1. Resolve raw coordinates (support both % and absolute pixels)
+    fn draw(&self, style: &Gss, name: &str);
+    fn measure(&self, style: &Style, name: &str) -> Vector2;
+    fn get_rec(&self, style: &Gss, name: &str) -> Rectangle {
+        let Vector2 { x, y } = self.get_position(style, name);
+        let Vector2 {
+            x: width,
+            y: height,
+        } = self.measure(style, name);
+        Rectangle {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+    fn get_color(&self, style: &Gss, name: &str) -> Color {
+        get_color_field(style, &[name, "color"])
+    }
+    fn get_factor(&self, style: &Gss, name: &str) -> f32 {
+        get_f32_field(style, name, "factor", DEFAULT_FACTOR)
+    }
+    fn get_position(&self, style: &Gss, name: &str) -> Vector2 {
         let mut x = get_position_field(style, name, "left", get_screen_width() as f32, 0.0);
         let mut y = get_position_field(style, name, "top", get_screen_height() as f32, 0.0);
+        let size = self.measure(style, name);
+        x -= size.x / 2.0;
+        y -= size.y / 2.0;
+        Vector2 { x, y }
 
-        // 2. Measure the element bounds
-        let size = self.measure(factor);
-
-        // 3. Apply alignment offsets
-        if let Some(align) = style.get::<String>(&[name, "align"]) {
-            match align.as_str() {
-                "center" => x -= size.x / 2.0,
-                "right" => x -= size.x,
-                _ => {} // default is left
-            }
+        // if let Some(align) = style.get::<String>(&[name, "align"]) {
+        //     match align.as_str() {
+        //         "center" => x -= size.x / 2.0,
+        //         "right" => x -= size.x,
+        //         _ => {} // default is left
+        //     }
+        // }
+        // if let Some(valign) = style.get::<String>(&[name, "valign"]) {
+        //     match valign.as_str() {
+        //         "middle" | "center" => y -= size.y / 2.0,
+        //         "top" => {}
+        //         "bottom" => y -= size.y,
+        //         _ => {} // default to top-alignment
+        //     }
+        // }
+    }
+    fn place(&self, style: &Gss, name: &str) {
+        self.draw(style, name);
+        if get_bool_field(style, name, "frame", false) {
+            draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
+            return;
         }
-
-        if let Some(valign) = style.get::<String>(&[name, "valign"]) {
-            match valign.as_str() {
-                "middle" | "center" => y -= size.y / 2.0,
-                "top" => {}
-                "bottom" => y -= size.y,
-                _ => {} // default to top-alignment
-            }
-        }
-
-        let color = get_color_field(style, &[name, "color"]);
-        self.draw(Vector2 { x, y }, factor, color);
     }
 }
 
 pub struct TextElement {
     pub text: String,
+    font: Font,
 }
 
 impl TextElement {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
+        Self {
+            text: text.into(),
+            font: get_font_default(),
+        }
+    }
+    pub fn create(text: impl Into<String>, font: Font) -> Self {
+        Self {
+            text: text.into(),
+            font,
+        }
     }
 }
 
 impl Element for TextElement {
-    fn draw(&self, position: Vector2, factor: f32, color: Color) {
-        draw_text(
+    fn draw(&self, style: &Style, name: &str) {
+        let position = self.get_position(style, name);
+        let font_size = get_f32_field(style, name, "font_size", DEFAULT_FONT_SIZE);
+        let color = self.get_color(style, name);
+        let spacing = get_f32_field(style, name, "spacing", DEFAULT_SPACING);
+        draw_text_ex(
+            self.font,
             cstr!(&self.text),
-            position.x as _,
-            position.y as _,
-            factor as _,
+            position,
+            font_size,
+            spacing,
             color,
         );
     }
 
-    fn measure(&self, factor: f32) -> Vector2 {
-        Vector2 {
-            x: measure_text(cstr!(&self.text), factor as _) as f32,
-            y: factor,
-        }
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let font_size = get_f32_field(style, name, "font_size", DEFAULT_FONT_SIZE);
+        let spacing = get_f32_field(style, name, "spacing", DEFAULT_SPACING);
+        measure_text_ex(self.font, cstr!(&self.text), font_size, spacing)
     }
 }
 
 pub struct TextureElement(Texture2D);
 
 impl TextureElement {
-    pub fn load_texture(path: impl AsRef<str>) -> Option<Self> {
+    pub fn load_from_file(path: impl AsRef<str>) -> Option<Self> {
         let texture = load_texture(cstr!(path.as_ref()));
-        unsafe {
-            if IsTextureValid(texture) {
-                Some(Self(texture))
-            } else {
-                None
-            }
+        if is_texture_valid(texture) {
+            Some(Self(texture))
+        } else {
+            None
         }
     }
 }
 
 impl Drop for TextureElement {
     fn drop(&mut self) {
-        unsafe {
-            UnloadTexture(self.0);
-        }
+        unload_texture(self.0);
     }
 }
 
 impl Element for TextureElement {
-    fn draw(&self, position: Vector2, factor: f32, color: Color) {
-        unsafe { DrawTextureEx(self.0, position, 0.0, factor, color) };
+    fn draw(&self, style: &Style, name: &str) {
+        let position = self.get_position(style, name);
+        let factor = self.get_factor(style, name);
+        let rotation = get_f32_field(style, name, "rotation", DEFAULT_ROTATION);
+        let color = self.get_color(style, name);
+        draw_texture_ex(self.0, position, rotation, factor, color);
     }
 
-    fn measure(&self, factor: f32) -> Vector2 {
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let factor = self.get_factor(style, name);
         Vector2 {
             x: self.0.width as f32 * factor,
             y: self.0.height as f32 * factor,
@@ -349,53 +377,30 @@ impl Element for TextureElement {
     }
 }
 
-pub struct MusicResource(Music);
+pub struct ButtonElement<E: Element> {
+    element: E,
+}
 
-impl MusicResource {
-    pub fn into_music(self) -> Music {
-        self.0
-    }
-    pub fn load_music_stream(path: impl AsRef<str>) -> Option<Self> {
-        let music = load_music_stream(cstr!(path.as_ref()));
-        unsafe {
-            if IsMusicValid(music) {
-                Some(Self(music))
-            } else {
-                None
-            }
-        }
-    }
-    pub fn set_volume(&self, volume: f32) {
-        unsafe { SetMusicVolume(self.0, volume) };
-    }
-    pub fn play(&self) {
-        unsafe {
-            PlayMusicStream(self.0);
-        }
-    }
-    pub fn update(&self) {
-        unsafe {
-            UpdateMusicStream(self.0);
-        }
+impl<E: Element> ButtonElement<E> {
+    pub fn new(element: E) -> Self {
+        Self { element }
     }
 
-    pub fn pause(&self) {
-        unsafe {
-            PauseMusicStream(self.0);
-        }
-    }
-
-    pub fn resume(&self) {
-        unsafe {
-            ResumeMusicStream(self.0);
-        }
+    pub fn click(&self, style: &gss::Object, name: &str) -> bool {
+        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+            && check_collision_circle_rec(
+                get_mouse_position(),
+                MOUSE_CLICK_RADIUS,
+                self.get_rec(style, name),
+            )
     }
 }
 
-impl Drop for MusicResource {
-    fn drop(&mut self) {
-        unsafe {
-            UnloadMusicStream(self.0);
-        }
+impl<'a, E: Element> Element for ButtonElement<E> {
+    fn draw(&self, style: &Style, name: &str) {
+        self.element.draw(style, name);
+    }
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        self.element.measure(style, name)
     }
 }

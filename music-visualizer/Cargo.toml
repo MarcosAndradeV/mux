@@ -1,8 +1,0 @@
-[package]
-name = "music-visualizer"
-version = "0.1.0"
-edition = "2024"
-default-run = "music-visualizer"
-
-[dependencies]
-muxui = { path = "../muxui", version = "0.1.0" }

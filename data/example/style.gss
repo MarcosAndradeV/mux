@@ -1,27 +1,33 @@
 message = {
     top = 50%,
     left = 50%,
-    factor = 40.0,
+    font_size = 40.0,
+    spacing = 5.0,
     color = "white",
-    align = "center",
+    frame = true,
 }
 
 timer = {
     top = 85%,
     left = 20%,
-    factor = 40.0,
+    font_size = message.font_size,
+    spacing = message.spacing,
     color = "white",
-    align = "center",
+    frame = true,
 }
 
 clock = {
     top = 15%,
     left = timer.left,
-    factor = 40.0,
+    font_size = message.font_size,
+    spacing = message.spacing,
     color = "yellow",
-    align = "center",
+    frame = true,
 }
 
 penger = {
+    frame = true,
+    top = 5%,
+    left = 5%,
     color = "white",
 }

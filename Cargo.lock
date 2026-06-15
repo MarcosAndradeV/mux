@@ -133,13 +133,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
-name = "music-visualizer"
-version = "0.1.0"
-dependencies = [
- "muxui",
-]
-
-[[package]]
 name = "muxui"
 version = "0.1.0"
 dependencies = [
@@ -188,7 +181,7 @@ dependencies = [
 [[package]]
 name = "raylib"
 version = "0.1.0"
-source = "git+https://github.com/MarcosAndradeV/raylib-rs#6c62bc445e48043e094b8d1944fbba9535f887da"
+source = "git+https://github.com/MarcosAndradeV/raylib-rs#b17adc4496d148ecfa764a6565621e03c6b842d2"
 dependencies = [
  "bindgen",
 ]
