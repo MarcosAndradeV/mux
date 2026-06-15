@@ -256,8 +256,25 @@ pub trait Element {
         let mut x = get_relative_field(style, &[name, "left"], get_screen_width() as f32, 0.0);
         let mut y = get_relative_field(style, &[name, "top"], get_screen_height() as f32, 0.0);
         let size = self.measure(style, name);
-        x -= size.x / 2.0;
-        y -= size.y / 2.0;
+
+        // Apply horizontal alignment (defaults to left-aligned if absent/invalid)
+        if let Some(align) = style.get::<String>(&[name, "align"]) {
+            match align.as_str() {
+                "center" => x -= size.x / 2.0,
+                "right" => x -= size.x,
+                _ => {}
+            }
+        }
+
+        // Apply vertical alignment (defaults to top-aligned if absent/invalid)
+        if let Some(valign) = style.get::<String>(&[name, "valign"]) {
+            match valign.as_str() {
+                "middle" | "center" => y -= size.y / 2.0,
+                "bottom" => y -= size.y,
+                _ => {}
+            }
+        }
+
         Vector2 { x, y }
     }
 }

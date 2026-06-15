@@ -4,6 +4,8 @@ message = {
     font_size = 40.0,
     spacing = 5.0,
     color = "white",
+    align = "center",
+    valign = "middle",
 }
 
 timer = {
@@ -13,6 +15,8 @@ timer = {
     font_size = message.font_size,
     spacing = message.spacing,
     color = "white",
+    align = "center",
+    valign = "middle",
 }
 
 clock = {
@@ -21,6 +25,8 @@ clock = {
     font_size = message.font_size,
     spacing = message.spacing,
     color = "yellow",
+    align = "center",
+    valign = "middle",
 }
 
 default_button = {
@@ -32,5 +38,7 @@ penger = {
     left = 5%,
     scale = 200%,
     color = "white",
+    align = "center",
+    valign = "middle",
     button = default_button
 }
