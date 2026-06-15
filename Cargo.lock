@@ -78,7 +78,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "gss"
 version = "0.1.0"
-source = "git+https://github.com/MarcosAndradeV/GSS#0133fddc693c9df6205bb3d9d4f54c31679f4c57"
+source = "git+https://github.com/MarcosAndradeV/GSS#89d51fe1313200765ae334275fbc69cbb92498de"
 dependencies = [
  "lex-just-parse",
 ]

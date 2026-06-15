@@ -7,6 +7,7 @@ message = {
 }
 
 timer = {
+    frame = true,
     top = 85%,
     left = 20%,
     font_size = message.font_size,
@@ -22,10 +23,14 @@ clock = {
     color = "yellow",
 }
 
+default_button = {
+    color = "white",
+}
+
 penger = {
-    frame = true,
     top = 5%,
     left = 5%,
     scale = 200%,
     color = "white",
+    button = default_button
 }

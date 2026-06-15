@@ -363,6 +363,11 @@ impl<E: Element> ButtonElement<E> {
 
 impl<'a, E: Element> Element for ButtonElement<E> {
     fn draw(&self, style: &Style, name: &str) {
+        let color = get_color_field(style, &[name, "button", "color"], BLANK);
+        let rec = self.get_rec(style, name);
+        unsafe {
+            DrawRectangleRec(rec, color);
+        }
         self.element.draw(style, name);
     }
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
