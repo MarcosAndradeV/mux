@@ -6,8 +6,6 @@ use notify::Watcher;
 pub use raylib::*;
 
 // raylib helpers commit it back later!
-// use std::ffi::CString;
-
 
 const DEFAULT_ROTATION: f32 = 0.0;
 const DEFAULT_FONT_SIZE: f32 = 20.0;
@@ -463,7 +461,7 @@ impl<'a> Element for StackLayout<'a> {
         let mut offset = 0.0;
         for (child_name, child) in &self.children {
             let child_size = child.measure(style, child_name);
-            
+
             let child_pos = match direction.as_str() {
                 "horizontal" => {
                     let mut child_y = position.y;
@@ -498,9 +496,9 @@ impl<'a> Element for StackLayout<'a> {
                     pos
                 }
             };
-            
+
             child.draw(child_pos, style, child_name);
-            
+
             if get_bool_field(style, child_name, "frame", false) {
                 let rec = Rectangle {
                     x: child_pos.x,

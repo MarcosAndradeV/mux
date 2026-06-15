@@ -1,0 +1,30 @@
+main_stack = {
+    top = 10,
+    left = 10,
+    direction = "vertical",
+    gap = 4.0,
+}
+
+row_stack = {
+    direction = "horizontal",
+    gap = 4.0,
+}
+
+btn_style = {
+    font_size = 12.0,
+    spacing = 1.0,
+    color = "white",
+    align = "center",
+    valign = "middle",
+    button = {
+        color = "dark blue",
+    }
+}
+
+stats = {
+    left = 2%,
+    top = 96%,
+    font_size = 20.0,
+    color = "green",
+
+}
