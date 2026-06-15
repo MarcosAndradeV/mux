@@ -257,17 +257,17 @@ fn map_color(string: &str) -> Color {
 }
 
 pub trait Element {
-    /// Draw the raw element on the screen
-    fn draw(&self, style: &Gss, name: &str);
+    /// Draw the raw element on the screen at a resolved position
+    fn draw(&self, position: Vector2, style: &Gss, name: &str);
     /// Get the element size
     fn measure(&self, style: &Style, name: &str) -> Vector2;
 
     /// Place the element on the screen
     fn place(&self, style: &Gss, name: &str) {
-        self.draw(style, name);
+        let position = self.get_position(style, name);
+        self.draw(position, style, name);
         if get_bool_field(style, name, "frame", false) {
             draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
-            return;
         }
     }
 
@@ -335,8 +335,7 @@ impl TextElement {
 }
 
 impl Element for TextElement {
-    fn draw(&self, style: &Style, name: &str) {
-        let position = self.get_position(style, name);
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
         let font_size = get_f32_field(style, &[name, "font_size"], DEFAULT_FONT_SIZE);
         let color = get_color_field(style, &[name, "color"], WHITE);
         let spacing = get_f32_field(style, &[name, "spacing"], DEFAULT_SPACING);
@@ -377,8 +376,7 @@ impl Drop for TextureElement {
 }
 
 impl Element for TextureElement {
-    fn draw(&self, style: &Style, name: &str) {
-        let position = self.get_position(style, name);
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
         let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
         let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
         let color = get_color_field(style, &[name, "color"], WHITE);
@@ -396,33 +394,155 @@ impl Element for TextureElement {
 
 pub struct ButtonElement<E: Element> {
     element: E,
+    cached_rec: std::cell::Cell<Rectangle>,
 }
 
 impl<E: Element> ButtonElement<E> {
     pub fn new(element: E) -> Self {
-        Self { element }
+        Self {
+            element,
+            cached_rec: std::cell::Cell::new(Rectangle {
+                x: -1000.0,
+                y: -1000.0,
+                width: 0.0,
+                height: 0.0,
+            }),
+        }
     }
 
-    pub fn click(&self, style: &gss::Object, name: &str) -> bool {
+    pub fn click(&self) -> bool {
         is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
             && check_collision_circle_rec(
                 get_mouse_position(),
                 MOUSE_CLICK_RADIUS,
-                self.get_rec(style, name),
+                self.cached_rec.get(),
             )
     }
 }
 
-impl<'a, E: Element> Element for ButtonElement<E> {
-    fn draw(&self, style: &Style, name: &str) {
+impl<E: Element> Element for ButtonElement<E> {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
         let color = get_color_field(style, &[name, "button", "color"], BLANK);
-        let rec = self.get_rec(style, name);
+        let size = self.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+        self.cached_rec.set(rec);
         unsafe {
             DrawRectangleRec(rec, color);
         }
-        self.element.draw(style, name);
+        self.element.draw(position, style, name);
     }
+
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
         self.element.measure(style, name)
+    }
+}
+
+pub struct StackLayout<'a> {
+    pub children: Vec<(String, &'a dyn Element)>,
+}
+
+impl<'a> StackLayout<'a> {
+    pub fn new(children: Vec<(impl Into<String>, &'a dyn Element)>) -> Self {
+        Self {
+            children: children.into_iter().map(|(n, e)| (n.into(), e)).collect(),
+        }
+    }
+}
+
+impl<'a> Element for StackLayout<'a> {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let direction = style.get::<String>(&[name, "direction"]).cloned().unwrap_or_else(|| "vertical".to_string());
+        let gap = get_f32_field(style, &[name, "gap"], 0.0);
+        let stack_size = self.measure(style, name);
+
+        let mut offset = 0.0;
+        for (child_name, child) in &self.children {
+            let child_size = child.measure(style, child_name);
+            
+            let child_pos = match direction.as_str() {
+                "horizontal" => {
+                    let mut child_y = position.y;
+                    if let Some(valign) = style.get::<String>(&[child_name, "valign"]) {
+                        match valign.as_str() {
+                            "middle" | "center" => child_y += (stack_size.y - child_size.y) / 2.0,
+                            "bottom" => child_y += stack_size.y - child_size.y,
+                            _ => {}
+                        }
+                    }
+                    let pos = Vector2 {
+                        x: position.x + offset,
+                        y: child_y,
+                    };
+                    offset += child_size.x + gap;
+                    pos
+                }
+                _ => { // vertical
+                    let mut child_x = position.x;
+                    if let Some(align) = style.get::<String>(&[child_name, "align"]) {
+                        match align.as_str() {
+                            "center" => child_x += (stack_size.x - child_size.x) / 2.0,
+                            "right" => child_x += stack_size.x - child_size.x,
+                            _ => {}
+                        }
+                    }
+                    let pos = Vector2 {
+                        x: child_x,
+                        y: position.y + offset,
+                    };
+                    offset += child_size.y + gap;
+                    pos
+                }
+            };
+            
+            child.draw(child_pos, style, child_name);
+            
+            if get_bool_field(style, child_name, "frame", false) {
+                let rec = Rectangle {
+                    x: child_pos.x,
+                    y: child_pos.y,
+                    width: child_size.x,
+                    height: child_size.y,
+                };
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let direction = style.get::<String>(&[name, "direction"]).cloned().unwrap_or_else(|| "vertical".to_string());
+        let gap = get_f32_field(style, &[name, "gap"], 0.0);
+
+        let mut width: f32 = 0.0;
+        let mut height: f32 = 0.0;
+        let mut count = 0;
+
+        for (child_name, child) in &self.children {
+            let child_size = child.measure(style, child_name);
+            match direction.as_str() {
+                "horizontal" => {
+                    width += child_size.x;
+                    height = height.max(child_size.y);
+                }
+                _ => { // vertical
+                    width = width.max(child_size.x);
+                    height += child_size.y;
+                }
+            }
+            count += 1;
+        }
+
+        if count > 1 {
+            match direction.as_str() {
+                "horizontal" => width += gap * (count - 1) as f32,
+                _ => height += gap * (count - 1) as f32,
+            }
+        }
+
+        Vector2 { x: width, y: height }
     }
 }

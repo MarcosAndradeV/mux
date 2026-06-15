@@ -9,7 +9,6 @@ message = {
 }
 
 timer = {
-    frame = true,
     top = 85%,
     left = 20%,
     font_size = message.font_size,
@@ -35,10 +34,19 @@ default_button = {
 
 penger = {
     top = 5%,
-    left = 5%,
+    left = 50%,
     scale = 200%,
     color = "white",
     align = "center",
     valign = "middle",
     button = default_button
+}
+
+menu_stack = {
+    top = 25%,
+    left = 50%,
+    align = "center",
+    valign = "top",
+    direction = "vertical",
+    gap = 20.0,
 }

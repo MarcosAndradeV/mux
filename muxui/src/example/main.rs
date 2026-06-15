@@ -32,25 +32,36 @@ fn update(ctx: &mut Context, style: &Style) {
     if is_key_pressed(KEY_C) {
         ctx.show_clock = !ctx.show_clock;
     }
-    if ctx.penger.click(style, "penger") {
+    if ctx.penger.click() {
         println!("You found a penger!");
+        ctx.show_clock = !ctx.show_clock;
     }
 
     begin_drawing();
     clear_background(DARKGRAY);
 
-    ctx.message.place(style, "message");
-
     let secs = Instant::now().duration_since(ctx.timer).as_secs();
-    TextElement::new(format_time(secs)).place(style, "timer");
+    let timer_elem = TextElement::new(format_time(secs));
+
+    let mut clock_elem = None;
     if ctx.show_clock {
         let secs = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
             - 3 * 3600;
-        TextElement::new(format_time(secs)).place(style, "clock");
+        clock_elem = Some(TextElement::new(format_time(secs)));
     }
+
+    let mut menu_children: Vec<(&str, &dyn Element)> =
+        vec![("message", &ctx.message), ("timer", &timer_elem)];
+
+    if let Some(ref elem) = clock_elem {
+        menu_children.push(("clock", elem));
+    }
+
+    let stack = StackLayout::new(menu_children);
+    stack.place(style, "menu_stack");
 
     ctx.penger.place(style, "penger");
 
