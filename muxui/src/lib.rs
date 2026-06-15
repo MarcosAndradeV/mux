@@ -6,36 +6,12 @@ pub use raylib::*;
 
 // raylib helpers commit it back later!
 // use std::ffi::CString;
-pub fn check_collision_circle_rec(center: Vector2, radius: f32, rec: Rectangle) -> bool {
-    unsafe { CheckCollisionCircleRec(center, radius, rec) }
-}
 
-pub fn is_texture_valid(texture: Texture2D) -> bool {
-    unsafe { IsTextureValid(texture) }
-}
-
-pub fn unload_texture(texture: Texture2D) {
-    unsafe {
-        UnloadTexture(texture);
-    }
-}
-
-pub fn draw_texture_ex(
-    texture: Texture2D,
-    position: Vector2,
-    rotation: f32,
-    scale: f32,
-    tint: Color,
-) {
-    unsafe {
-        DrawTextureEx(texture, position, rotation, scale, tint);
-    }
-}
 
 const DEFAULT_ROTATION: f32 = 0.0;
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 const DEFAULT_SPACING: f32 = 2.0;
-const DEFAULT_FACTOR: f32 = 1.0;
+const DEFAULT_SCALE: f32 = 1.0;
 const DEFAULT_FPS: i32 = 60;
 
 const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
@@ -44,7 +20,7 @@ const MOUSE_CLICK_RADIUS: f32 = 2.0;
 pub type Style = Gss;
 
 struct Manager<Context> {
-    update: Box<dyn Fn(&mut Context, &Style, bool) + 'static>,
+    update: Box<dyn Fn(&mut Context, &Style) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -55,7 +31,7 @@ pub struct App<Context> {
     width: i32,
     height: i32,
     title: String,
-    update: Option<Box<dyn Fn(&mut Context, &Style, bool) + 'static>>,
+    update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -86,7 +62,7 @@ impl<Context> App<Context> {
         self
     }
 
-    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style, bool) + 'static>(
+    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(
         mut self,
         f: F,
     ) -> Self {
@@ -115,13 +91,14 @@ impl<Context> App<Context> {
             audio_device,
             init_context,
         } = self;
+        unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
         init_window(width, height, cstr!(&title));
         if audio_device {
             init_audio_device();
         }
 
         Manager {
-            update: update.unwrap_or(Box::new(|_, _, _| {})),
+            update: update.unwrap_or(Box::new(|_, _| {})),
             style_file,
             fps,
             audio_device,
@@ -141,14 +118,11 @@ impl<Context> App<Context> {
         } = self.build();
         set_target_fps(fps);
         let mut style = load_style(style_file.as_ref(), Gss::new());
-        let mut reload = true;
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
                 style = load_style(style_file.as_ref(), style);
-                reload = true;
             }
-            update(&mut context, &style, reload);
-            reload = false;
+            update(&mut context, &style);
         }
         drop(context);
         if audio_device {
@@ -174,13 +148,13 @@ fn load_style<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     fallback
 }
 
-pub fn get_color_field(style: &Style, path: &[&str]) -> Color {
+pub fn get_color_field(style: &Style, path: &[&str], default: Color) -> Color {
     if let Some(string) = style.get::<String>(path) {
         map_color(string)
     } else if let Some(hex) = style.get::<u32>(path) {
         get_color(*hex)
     } else {
-        BLANK
+        default
     }
 }
 
@@ -192,20 +166,25 @@ pub fn get_bool_field(style: &Style, name: &str, field: &str, default: bool) -> 
     }
 }
 
-pub fn get_f32_field(style: &Style, name: &str, field: &str, default: f32) -> f32 {
-    if let Some(&val) = style.get::<f32>(&[name, field]) {
+pub fn get_f32_field(style: &Style, path: &[&str], default: f32) -> f32 {
+    if let Some(&val) = style.get::<f32>(path) {
         val
-    } else if let Some(&val) = style.get::<u32>(&[name, field]) {
+    } else if let Some(&val) = style.get::<u32>(path) {
         val as f32
     } else {
         default
     }
 }
 
-fn get_position_field(style: &Style, name: &str, field: &str, scale: f32, default: f32) -> f32 {
-    if let Some(&val) = style.get::<f32>(&[name, field]) {
+pub fn get_relative_field(
+    style: &Style,
+    path: &[&str],
+    scale: f32,
+    default: f32,
+) -> f32 {
+    if let Some(&val) = style.get::<f32>(path) {
         val * scale
-    } else if let Some(&val) = style.get::<u32>(&[name, field]) {
+    } else if let Some(&val) = style.get::<u32>(path) {
         val as f32
     } else {
         default
@@ -243,8 +222,21 @@ fn map_color(string: &str) -> Color {
 }
 
 pub trait Element {
+    /// Draw the raw element on the screen
     fn draw(&self, style: &Gss, name: &str);
+    /// Get the element size
     fn measure(&self, style: &Style, name: &str) -> Vector2;
+
+    /// Place the element on the screen
+    fn place(&self, style: &Gss, name: &str) {
+        self.draw(style, name);
+        if get_bool_field(style, name, "frame", false) {
+            draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
+            return;
+        }
+    }
+
+    /// Get the element [`Rectangle`]
     fn get_rec(&self, style: &Gss, name: &str) -> Rectangle {
         let Vector2 { x, y } = self.get_position(style, name);
         let Vector2 {
@@ -258,42 +250,15 @@ pub trait Element {
             height,
         }
     }
-    fn get_color(&self, style: &Gss, name: &str) -> Color {
-        get_color_field(style, &[name, "color"])
-    }
-    fn get_factor(&self, style: &Gss, name: &str) -> f32 {
-        get_f32_field(style, name, "factor", DEFAULT_FACTOR)
-    }
+
+    /// Get the element 2d position as [`Vector2`]
     fn get_position(&self, style: &Gss, name: &str) -> Vector2 {
-        let mut x = get_position_field(style, name, "left", get_screen_width() as f32, 0.0);
-        let mut y = get_position_field(style, name, "top", get_screen_height() as f32, 0.0);
+        let mut x = get_relative_field(style, &[name, "left"], get_screen_width() as f32, 0.0);
+        let mut y = get_relative_field(style, &[name, "top"], get_screen_height() as f32, 0.0);
         let size = self.measure(style, name);
         x -= size.x / 2.0;
         y -= size.y / 2.0;
         Vector2 { x, y }
-
-        // if let Some(align) = style.get::<String>(&[name, "align"]) {
-        //     match align.as_str() {
-        //         "center" => x -= size.x / 2.0,
-        //         "right" => x -= size.x,
-        //         _ => {} // default is left
-        //     }
-        // }
-        // if let Some(valign) = style.get::<String>(&[name, "valign"]) {
-        //     match valign.as_str() {
-        //         "middle" | "center" => y -= size.y / 2.0,
-        //         "top" => {}
-        //         "bottom" => y -= size.y,
-        //         _ => {} // default to top-alignment
-        //     }
-        // }
-    }
-    fn place(&self, style: &Gss, name: &str) {
-        self.draw(style, name);
-        if get_bool_field(style, name, "frame", false) {
-            draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
-            return;
-        }
     }
 }
 
@@ -320,9 +285,9 @@ impl TextElement {
 impl Element for TextElement {
     fn draw(&self, style: &Style, name: &str) {
         let position = self.get_position(style, name);
-        let font_size = get_f32_field(style, name, "font_size", DEFAULT_FONT_SIZE);
-        let color = self.get_color(style, name);
-        let spacing = get_f32_field(style, name, "spacing", DEFAULT_SPACING);
+        let font_size = get_f32_field(style, &[name, "font_size"], DEFAULT_FONT_SIZE);
+        let color = get_color_field(style, &[name, "color"], WHITE);
+        let spacing = get_f32_field(style, &[name, "spacing"], DEFAULT_SPACING);
         draw_text_ex(
             self.font,
             cstr!(&self.text),
@@ -334,8 +299,8 @@ impl Element for TextElement {
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        let font_size = get_f32_field(style, name, "font_size", DEFAULT_FONT_SIZE);
-        let spacing = get_f32_field(style, name, "spacing", DEFAULT_SPACING);
+        let font_size = get_f32_field(style, &[name, "font_size"], DEFAULT_FONT_SIZE);
+        let spacing = get_f32_field(style, &[name, "spacing"], DEFAULT_SPACING);
         measure_text_ex(self.font, cstr!(&self.text), font_size, spacing)
     }
 }
@@ -362,17 +327,17 @@ impl Drop for TextureElement {
 impl Element for TextureElement {
     fn draw(&self, style: &Style, name: &str) {
         let position = self.get_position(style, name);
-        let factor = self.get_factor(style, name);
-        let rotation = get_f32_field(style, name, "rotation", DEFAULT_ROTATION);
-        let color = self.get_color(style, name);
-        draw_texture_ex(self.0, position, rotation, factor, color);
+        let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
+        let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
+        let color = get_color_field(style, &[name, "color"], WHITE);
+        draw_texture_ex(self.0, position, rotation, scale, color);
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        let factor = self.get_factor(style, name);
+        let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
         Vector2 {
-            x: self.0.width as f32 * factor,
-            y: self.0.height as f32 * factor,
+            x: self.0.width as f32 * scale,
+            y: self.0.height as f32 * scale,
         }
     }
 }

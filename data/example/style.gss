@@ -4,7 +4,6 @@ message = {
     font_size = 40.0,
     spacing = 5.0,
     color = "white",
-    frame = true,
 }
 
 timer = {
@@ -13,7 +12,6 @@ timer = {
     font_size = message.font_size,
     spacing = message.spacing,
     color = "white",
-    frame = true,
 }
 
 clock = {
@@ -22,12 +20,12 @@ clock = {
     font_size = message.font_size,
     spacing = message.spacing,
     color = "yellow",
-    frame = true,
 }
 
 penger = {
     frame = true,
     top = 5%,
     left = 5%,
+    scale = 200%,
     color = "white",
 }

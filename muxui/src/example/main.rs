@@ -25,7 +25,7 @@ fn main() {
     .run();
 }
 
-fn update(ctx: &mut Context, style: &Style, _reload: bool) {
+fn update(ctx: &mut Context, style: &Style) {
     if is_key_pressed(KEY_R) {
         ctx.timer = Instant::now();
     }
@@ -41,16 +41,15 @@ fn update(ctx: &mut Context, style: &Style, _reload: bool) {
 
     ctx.message.place(style, "message");
 
-    TimerElement(Instant::now().duration_since(ctx.timer).as_secs()).place(style, "timer");
+    let secs = Instant::now().duration_since(ctx.timer).as_secs();
+    TextElement::new(format_time(secs)).place(style, "timer");
     if ctx.show_clock {
-        TimerElement(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                - 3 * 3600,
-        )
-        .place(style, "clock");
+        let secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            - 3 * 3600;
+        TextElement::new(format_time(secs)).place(style, "clock");
     }
 
     ctx.penger.place(style, "penger");
@@ -61,22 +60,11 @@ fn update(ctx: &mut Context, style: &Style, _reload: bool) {
     end_drawing();
 }
 
-pub struct TimerElement(pub u64);
-
-impl Element for TimerElement {
-    fn draw(&self, style: &Style, name: &str) {
-        let secs = self.0;
-        let text = format!(
-            "{:02}:{:02}:{:02}",
-            (secs / 3600) % 24,
-            (secs / 60) % 60,
-            secs % 60
-        );
-        TextElement::new(text).draw(style, name);
-    }
-
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        let text = format!("00:00:00");
-        TextElement::new(text).measure(style, name)
-    }
+fn format_time(secs: u64) -> String {
+    format!(
+        "{:02}:{:02}:{:02}",
+        (secs / 3600) % 24,
+        (secs / 60) % 60,
+        secs % 60
+    )
 }
