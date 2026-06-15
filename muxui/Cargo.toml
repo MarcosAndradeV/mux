@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 gss = { git = "https://github.com/MarcosAndradeV/GSS", version = "0.1.0", features = ["interning"] }
+notify = "8.2.0"
 raylib = { git = "https://github.com/MarcosAndradeV/raylib-rs", version = "0.1.0" }
 
 # cargo run --example example

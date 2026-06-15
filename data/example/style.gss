@@ -3,7 +3,7 @@ message = {
     left = 50%,
     font_size = 40.0,
     spacing = 5.0,
-    color = "white",
+    color = "yellow",
     align = "center",
     valign = "middle",
 }

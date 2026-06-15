@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use gss::{Gss, load_gss_from_file};
+use notify::Watcher;
 
 pub use raylib::*;
 
@@ -118,10 +119,44 @@ impl<Context> App<Context> {
         } = self.build();
         set_target_fps(fps);
         let mut style = load_style(style_file.as_ref(), Gss::new());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut _watcher = None;
+
+        if let Some(ref path) = style_file {
+            let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+            if let Some(parent) = abs_path.parent() {
+                let abs_path_clone = abs_path.clone();
+                let tx_clone = tx.clone();
+                if let Ok(mut w) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        if event.paths.iter().any(|p| p == &abs_path_clone) {
+                            if event.kind.is_modify() || event.kind.is_create() {
+                                let _ = tx_clone.send(());
+                            }
+                        }
+                    }
+                }) {
+                    if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
+                        _watcher = Some(w);
+                    }
+                }
+            }
+        }
+
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
                 style = load_style(style_file.as_ref(), style);
             }
+
+            let mut should_reload = false;
+            while rx.try_recv().is_ok() {
+                should_reload = true;
+            }
+            if should_reload {
+                style = load_style(style_file.as_ref(), style);
+            }
+
             update(&mut context, &style);
         }
         drop(context);
