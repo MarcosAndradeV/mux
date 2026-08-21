@@ -53,7 +53,7 @@ const DEFAULT_ROTATION: f32 = 0.0;
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 const DEFAULT_SPACING: f32 = 2.0;
 const DEFAULT_SCALE: f32 = 1.0;
-const DEFAULT_FPS: i32 = 60;
+const DEFAULT_FPS: i32 = 24;
 
 const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
 const MOUSE_CLICK_RADIUS: f32 = 2.0;
@@ -103,10 +103,7 @@ impl<Context> App<Context> {
         self
     }
 
-    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(
-        mut self,
-        f: F,
-    ) -> Self {
+    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
         self
     }
@@ -132,7 +129,12 @@ impl<Context> App<Context> {
             audio_device,
             init_context,
         } = self;
-        log_info!("MUXUI: Initializing window: {}x{} - \"{}\"", width, height, title);
+        log_info!(
+            "MUXUI: Initializing window: {}x{} - \"{}\"",
+            width,
+            height,
+            title
+        );
         unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
         init_window(width, height, cstr!(&title));
         if audio_device {
@@ -141,7 +143,10 @@ impl<Context> App<Context> {
         }
 
         Manager {
-            update: update.unwrap_or(Box::new(|_, _| {})),
+            update: update.unwrap_or(Box::new(|_, _| {
+                begin_drawing();
+                end_drawing();
+            })),
             style_file,
             fps,
             audio_device,
@@ -161,39 +166,50 @@ impl<Context> App<Context> {
             mut context,
         } = self.build();
         set_target_fps(fps);
-        let mut style = load_style(style_file.as_ref(), Gss::new());
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut _watcher = None;
 
+        let mut style = load_style_fallback(style_file.as_ref(), Style::new());
         if let Some(ref path) = style_file {
+            let mut _watcher = None;
+
             let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-            if let Some(parent) = abs_path.parent() {
-                let abs_path_clone = abs_path.clone();
-                let tx_clone = tx.clone();
-                if let Ok(mut w) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                    if let Ok(event) = res {
-                        if event.paths.iter().any(|p| p == &abs_path_clone) {
-                            if event.kind.is_modify() || event.kind.is_create() {
-                                let _ = tx_clone.send(());
+            // if abs_path.exists() {
+                if let Some(parent) = abs_path.parent() {
+                    let abs_path_clone = abs_path.clone();
+                    let tx_clone = tx.clone();
+                    if let Ok(mut w) = notify::recommended_watcher(
+                        move |res: Result<notify::Event, notify::Error>| {
+                            if let Ok(event) = res {
+                                if event.paths.iter().any(|p| p == &abs_path_clone) {
+                                    if event.kind.is_modify() || event.kind.is_create() {
+                                        let _ = tx_clone.send(());
+                                    }
+                                }
                             }
+                        },
+                    ) {
+                        if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
+                            log_info!(
+                                "MUXUI: File watcher set up for style file: {}",
+                                abs_path.display()
+                            );
+                            _watcher = Some(w);
+                        } else {
+                            log_warn!(
+                                "MUXUI: Failed to watch directory for style file: {}",
+                                parent.display()
+                            );
                         }
                     }
-                }) {
-                    if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
-                        log_info!("MUXUI: File watcher set up for style file: {}", abs_path.display());
-                        _watcher = Some(w);
-                    } else {
-                        log_warn!("MUXUI: Failed to watch directory for style file: {}", parent.display());
-                    }
                 }
-            }
+            // }
         }
 
         while !window_should_close() {
             if is_key_pressed(KEY_F5) {
                 log_info!("MUXUI: F5 pressed. Reloading style...");
-                style = load_style(style_file.as_ref(), style);
+                style = load_style_fallback(style_file.as_ref(), style);
             }
 
             let mut should_reload = false;
@@ -202,7 +218,7 @@ impl<Context> App<Context> {
             }
             if should_reload {
                 log_info!("MUXUI: Style file modified. Reloading style...");
-                style = load_style(style_file.as_ref(), style);
+                style = load_style_fallback(style_file.as_ref(), style);
             }
 
             update(&mut context, &style);
@@ -218,16 +234,19 @@ impl<Context> App<Context> {
     }
 }
 
-fn load_style<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
+fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     if let Some(style_file) = style_file.as_ref() {
         match load_gss_from_file(style_file) {
             Ok(ok) => {
-                log_info!("MUXUI: Style loaded successfully from {}", style_file.as_ref().display());
+                log_info!(
+                    "MUXUI: Style loaded successfully from {}",
+                    style_file.as_ref().display()
+                );
                 return ok;
             }
             Err(err) => {
                 log_warn!(
-                    "Cannot load file {} because of {}",
+                    "MUXUI: Cannot load file {} because of {}",
                     style_file.as_ref().display(),
                     err
                 );
@@ -265,12 +284,7 @@ pub fn get_f32_field(style: &Style, path: &[&str], default: f32) -> f32 {
     }
 }
 
-pub fn get_relative_field(
-    style: &Style,
-    path: &[&str],
-    scale: f32,
-    default: f32,
-) -> f32 {
+pub fn get_relative_field(style: &Style, path: &[&str], scale: f32, default: f32) -> f32 {
     if let Some(&val) = style.get::<f32>(path) {
         val * scale
     } else if let Some(&val) = style.get::<u32>(path) {
@@ -513,7 +527,10 @@ impl<'a> StackLayout<'a> {
 
 impl<'a> Element for StackLayout<'a> {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let direction = style.get::<String>(&[name, "direction"]).cloned().unwrap_or_else(|| "vertical".to_string());
+        let direction = style
+            .get::<String>(&[name, "direction"])
+            .cloned()
+            .unwrap_or_else(|| "vertical".to_string());
         let gap = get_f32_field(style, &[name, "gap"], 0.0);
         let stack_size = self.measure(style, name);
 
@@ -538,7 +555,8 @@ impl<'a> Element for StackLayout<'a> {
                     offset += child_size.x + gap;
                     pos
                 }
-                _ => { // vertical
+                _ => {
+                    // vertical
                     let mut child_x = position.x;
                     if let Some(align) = style.get::<String>(&[child_name, "align"]) {
                         match align.as_str() {
@@ -571,7 +589,10 @@ impl<'a> Element for StackLayout<'a> {
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        let direction = style.get::<String>(&[name, "direction"]).cloned().unwrap_or_else(|| "vertical".to_string());
+        let direction = style
+            .get::<String>(&[name, "direction"])
+            .cloned()
+            .unwrap_or_else(|| "vertical".to_string());
         let gap = get_f32_field(style, &[name, "gap"], 0.0);
 
         let mut width: f32 = 0.0;
@@ -585,7 +606,8 @@ impl<'a> Element for StackLayout<'a> {
                     width += child_size.x;
                     height = height.max(child_size.y);
                 }
-                _ => { // vertical
+                _ => {
+                    // vertical
                     width = width.max(child_size.x);
                     height += child_size.y;
                 }
@@ -600,6 +622,9 @@ impl<'a> Element for StackLayout<'a> {
             }
         }
 
-        Vector2 { x: width, y: height }
+        Vector2 {
+            x: width,
+            y: height,
+        }
     }
 }

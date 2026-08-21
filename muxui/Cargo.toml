@@ -16,3 +16,7 @@ path = "src/example/main.rs"
 [[example]]
 name = "stress"
 path = "src/example/stress.rs"
+
+[[example]]
+name = "calc"
+path = "src/example/calc.rs"
