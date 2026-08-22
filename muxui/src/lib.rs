@@ -1041,4 +1041,50 @@ mod tests {
         // Verify state mutation persists and delegates
         assert_eq!(element.measure(&style, "test").x, 50.0);
     }
+
+    use std::cell::RefCell;
+
+    struct MockElement {
+        size: Vector2,
+        draw_positions: RefCell<Vec<Vector2>>,
+    }
+
+    impl MockElement {
+        fn new(width: f32, height: f32) -> Self {
+            Self {
+                size: Vector2::new(width, height),
+                draw_positions: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Element for MockElement {
+        fn draw(&self, position: Vector2, _style: &Style, _name: &str) {
+            self.draw_positions.borrow_mut().push(position);
+        }
+        fn measure(&self, _style: &Style, _name: &str) -> Vector2 {
+            self.size
+        }
+    }
+
+    #[test]
+    fn test_button_element_wrapping() {
+        let child = MockElement::new(60.0, 30.0);
+        let mut btn = ButtonElement::new(child);
+
+        let style = Style::new();
+        // Verify size measurement delegates to wrapped element
+        assert_eq!(btn.measure(&style, "btn").x, 60.0);
+        assert_eq!(btn.measure(&style, "btn").y, 30.0);
+
+        assert_eq!(btn.element().size.x, 60.0);
+        assert_eq!(btn.element().size.y, 30.0);
+
+        btn.element_mut().size = Vector2::new(80.0, 40.0);
+        assert_eq!(btn.element().size.x, 80.0);
+
+        // Verify updated size measurement delegates correctly
+        assert_eq!(btn.measure(&style, "btn").x, 80.0);
+        assert_eq!(btn.measure(&style, "btn").y, 40.0);
+    }
 }
