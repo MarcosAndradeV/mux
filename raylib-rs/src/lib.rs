@@ -517,6 +517,18 @@ impl Rectangle {
     }
 }
 
+impl Default for Texture {
+    fn default() -> Self {
+        Texture {
+            id: 0,
+            width: 0,
+            height: 0,
+            mipmaps: 0,
+            format: 0,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 /// Mouse buttons

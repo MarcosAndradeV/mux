@@ -1,9 +1,9 @@
 use muxui::*;
 
 struct Ui {
-    attack_buttons: Vec<ButtonElement<RectangleElemet>>,
-    player_hp_bar: UpdateElemet<(u32, u32), HpBarElemet>,
-    enemy_hp_bar: UpdateElemet<(u32, u32), HpBarElemet>,
+    attack_buttons: Vec<ButtonElement<UpdateElement<Texture, TextureElement>>>,
+    player_hp_bar: UpdateElement<(u32, u32), HpBarElemet>,
+    enemy_hp_bar: UpdateElement<(u32, u32), HpBarElemet>,
 }
 
 struct Context {
@@ -12,16 +12,45 @@ struct Context {
     enemy_hp: (u32, u32),
 }
 
+fn create_btn_texture() -> Texture {
+    unsafe {
+        let image = GenImageChecked(140, 40, 32, 32, RED, BLUE);
+        let texture = LoadTextureFromImage(image);
+        UnloadImage(image);
+        texture
+    }
+}
+
 fn main() {
-    App::init(800, 600, "Layout Maker", || Context {
+    App::init(800, 600, "Layout Maker", init_context)
+        .on_update(update)
+        .set_fps(24)
+        .set_style_file("temp/layout.ui")
+        .run();
+}
+
+fn init_context() -> Context {
+    Context {
         ui: Ui {
             attack_buttons: vec![
-                ButtonElement::new(RectangleElemet),
-                ButtonElement::new(RectangleElemet),
-                ButtonElement::new(RectangleElemet),
-                ButtonElement::new(RectangleElemet),
+                ButtonElement::new(UpdateElement::new(
+                    TextureElement::from(create_btn_texture()),
+                    update_texture,
+                )),
+                ButtonElement::new(UpdateElement::new(
+                    TextureElement::from(create_btn_texture()),
+                    update_texture,
+                )),
+                ButtonElement::new(UpdateElement::new(
+                    TextureElement::from(create_btn_texture()),
+                    update_texture,
+                )),
+                ButtonElement::new(UpdateElement::new(
+                    TextureElement::from(create_btn_texture()),
+                    update_texture,
+                )),
             ],
-            player_hp_bar: UpdateElemet::new(
+            player_hp_bar: UpdateElement::new(
                 HpBarElemet {
                     invert: false,
                     current: 0,
@@ -29,7 +58,7 @@ fn main() {
                 },
                 update_hp_bar,
             ),
-            enemy_hp_bar: UpdateElemet::new(
+            enemy_hp_bar: UpdateElement::new(
                 HpBarElemet {
                     invert: true,
                     current: 0,
@@ -40,11 +69,7 @@ fn main() {
         },
         player_hp: (70, 100),
         enemy_hp: (30, 100),
-    })
-    .on_update(update)
-    .set_fps(24)
-    .set_style_file("temp/layout.ui")
-    .run();
+    }
 }
 
 fn update(ctx: &mut Context, style: &Style) {
@@ -131,4 +156,8 @@ impl Element for HpBarElemet {
 fn update_hp_bar(e: &mut HpBarElemet, (current, max): (u32, u32)) {
     e.current = current;
     e.max = max;
+}
+
+fn update_texture(e: &mut TextureElement, t: Texture) {
+    *e = TextureElement::from(t);
 }

@@ -10,7 +10,7 @@
 //! The library's core structure revolves around:
 //! - [`App`]: The main container driving the application window and render loop.
 //! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
-//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElemet`], [`ButtonElement`], and [`StackLayout`].
+//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], and [`StackLayout`].
 //! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
 //!
 //! ## Basic Example
@@ -851,17 +851,14 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
 
 /// A basic layout rectangle that fills space with specified dimensions and background color.
 ///
-/// *Note:* This type has a spelling error in its name (`RectangleElemet` instead of `RectangleElement`)
-/// which is preserved for backward compatibility.
-///
 /// # GSS Properties
 ///
 /// - `width` - The width of the rectangle (defaults to `0.0`).
 /// - `height` - The height of the rectangle (defaults to `0.0`).
 /// - `color` - The fill color of the rectangle (defaults to `MAGENTA`).
-pub struct RectangleElemet;
+pub struct RectangleElement;
 
-impl Element for RectangleElemet {
+impl Element for RectangleElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
         unsafe {
             DrawRectangleV(
@@ -883,13 +880,10 @@ impl Element for RectangleElemet {
 type UpdateFn<E, Payload> = fn(&mut E, Payload);
 
 /// A wrapper element that triggers an update callback with a payload before rendering the underlying element.
-///
-/// *Note:* This type has a spelling error in its name (`UpdateElemet` instead of `UpdateElement`)
-/// which is preserved for backward compatibility.
-pub struct UpdateElemet<Payload, E: Element>(E, UpdateFn<E, Payload>);
+pub struct UpdateElement<Payload, E: Element>(E, UpdateFn<E, Payload>);
 
-impl<P, E: Element> UpdateElemet<P, E> {
-    /// Creates a new `UpdateElemet` wrapping `element` with an update callback.
+impl<P, E: Element> UpdateElement<P, E> {
+    /// Creates a new `UpdateElement` wrapping `element` with an update callback.
     pub fn new(element: E, f: UpdateFn<E, P>) -> Self {
         Self(element, f)
     }
@@ -900,7 +894,7 @@ impl<P, E: Element> UpdateElemet<P, E> {
     }
 }
 
-impl<P, E: Element> Element for UpdateElemet<P, E> {
+impl<P, E: Element> Element for UpdateElement<P, E> {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
         self.0.draw(position, style, name);
     }
