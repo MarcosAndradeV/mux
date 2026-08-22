@@ -1087,4 +1087,54 @@ mod tests {
         assert_eq!(btn.measure(&style, "btn").x, 80.0);
         assert_eq!(btn.measure(&style, "btn").y, 40.0);
     }
+
+    #[test]
+    fn test_stack_layout_measure_vertical() {
+        let style = parse_str(
+            r#"
+            layout = {
+                direction = "vertical",
+                gap = 10.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(50.0, 30.0);
+        let child2 = MockElement::new(70.0, 40.0);
+        let children: &[(&str, &dyn Element)] = &[("child1", &child1), ("child2", &child2)];
+
+        let stack = StackLayout::new(children);
+        let size = stack.measure(&style, "layout");
+
+        // Vertical stack: width is max(child_width) = 70.0
+        // height is sum(child_height) + gap = 30 + 40 + 10 = 80.0
+        assert_eq!(size.x, 70.0);
+        assert_eq!(size.y, 80.0);
+    }
+
+    #[test]
+    fn test_stack_layout_measure_horizontal() {
+        let style = parse_str(
+            r#"
+            layout = {
+                direction = "horizontal",
+                gap = 5.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(50.0, 30.0);
+        let child2 = MockElement::new(70.0, 40.0);
+        let children: &[(&str, &dyn Element)] = &[("child1", &child1), ("child2", &child2)];
+
+        let stack = StackLayout::new(children);
+        let size = stack.measure(&style, "layout");
+
+        // Horizontal stack: width is sum(child_width) + gap = 50 + 70 + 5 = 125.0
+        // height is max(child_height) = 40.0
+        assert_eq!(size.x, 125.0);
+        assert_eq!(size.y, 40.0);
+    }
 }
