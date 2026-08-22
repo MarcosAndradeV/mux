@@ -1,4 +1,4 @@
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
 //! # muxui
 //!
 //! A lightweight user interface library built on top of Raylib (`raylib-rs`) and styled
@@ -512,18 +512,29 @@ pub trait Element {
     }
 }
 
+/// A standard text element that renders a string of text.
+///
+/// # GSS Properties
+///
+/// - `font_size` - The font size of the text (defaults to `20.0`).
+/// - `color` - The text color (defaults to `WHITE`).
+/// - `spacing` - The character spacing (defaults to `2.0`).
 pub struct TextElement {
+    /// The string text to display.
     pub text: String,
     font: Font,
 }
 
 impl TextElement {
+    /// Creates a new `TextElement` with the default font.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             font: get_font_default(),
         }
     }
+
+    /// Creates a new `TextElement` with a custom [`Font`].
     pub fn create(text: impl Into<String>, font: Font) -> Self {
         Self {
             text: text.into(),
@@ -554,6 +565,13 @@ impl Element for TextElement {
     }
 }
 
+/// A graphical element that wraps a Raylib [`Texture2D`] for rendering texture graphics.
+///
+/// # GSS Properties
+///
+/// - `scale` - The scaling factor applied to the texture dimensions (defaults to `1.0`).
+/// - `rotation` - The rotation angle in degrees (defaults to `0.0`).
+/// - `color` - The tint color applied to the texture when drawn (defaults to `WHITE`).
 pub struct TextureElement(Texture2D);
 
 impl std::ops::Deref for TextureElement {
@@ -571,6 +589,10 @@ impl From<Texture> for TextureElement {
 }
 
 impl TextureElement {
+    /// Loads a texture from the given filesystem path.
+    ///
+    /// Returns `Some(TextureElement)` if the texture was successfully loaded and is valid,
+    /// or `None` if the texture loading failed.
     pub fn load_from_file(path: impl AsRef<str>) -> Option<Self> {
         let path_str = path.as_ref();
         let texture = load_texture(cstr!(path_str));
@@ -582,6 +604,8 @@ impl TextureElement {
             None
         }
     }
+
+    /// Creates a placeholder, invalid [`TextureElement`] representing an empty/default texture.
     pub fn invalid() -> Self {
         Self(Texture::default())
     }
@@ -614,12 +638,20 @@ impl Element for TextureElement {
     }
 }
 
+/// A wrapper element that makes any underlying [`Element`] interactive as a button.
+///
+/// It caches the element's layout rectangle and checks for mouse button clicks.
+///
+/// # GSS Properties
+///
+/// - `button.color` - The background color of the button (defaults to `BLANK` / transparent).
 pub struct ButtonElement<E: Element> {
     element: E,
     cached_rec: std::cell::Cell<Rectangle>,
 }
 
 impl<E: Element> ButtonElement<E> {
+    /// Creates a new `ButtonElement` wrapping the given element.
     pub fn new(element: E) -> Self {
         Self {
             element,
@@ -641,10 +673,12 @@ impl<E: Element> ButtonElement<E> {
             )
     }
 
+    /// Returns an immutable reference to the wrapped element.
     pub fn element(&self) -> &E {
         &self.element
     }
 
+    /// Returns a mutable reference to the wrapped element.
     pub fn element_mut(&mut self) -> &mut E {
         &mut self.element
     }
@@ -680,15 +714,32 @@ impl<E: Element> Element for ButtonElement<E> {
     }
 }
 
+/// A layout container that arranges its child elements sequentially in a single direction (vertical or horizontal).
+///
+/// # GSS Properties
+///
+/// - `direction` - The layout direction, either `"vertical"` or `"horizontal"` (defaults to `"vertical"`).
+/// - `gap` - The gap spacing between sequential elements (defaults to `0.0`).
+///
+/// # Child Properties
+///
+/// Child elements placed inside the stack can be styled on the cross-axis with these properties:
+/// - `align` - Horizontal alignment for child elements in a vertical layout (`"center"`, `"right"`).
+/// - `valign` - Vertical alignment for child elements in a horizontal layout (`"middle"`, `"center"`, `"bottom"`).
+/// - `frame` - Draws a green debug border around the child if `true`.
 pub struct StackLayout<'a, 'b> {
     children: &'b [(&'a str, &'a dyn Element)],
 }
 
 impl<'a, 'b> StackLayout<'a, 'b> {
+    /// Creates a new `StackLayout` with the specified named child elements.
+    ///
+    /// Each child is specified as a tuple of `(selector_name, element_ref)`.
     pub fn new(children: &'b [(&'a str, &'a dyn Element)]) -> Self {
         Self { children }
     }
 
+    /// Returns the slice of children elements managed by this layout.
     pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
         &self.children
     }
@@ -798,6 +849,16 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
     }
 }
 
+/// A basic layout rectangle that fills space with specified dimensions and background color.
+///
+/// *Note:* This type has a spelling error in its name (`RectangleElemet` instead of `RectangleElement`)
+/// which is preserved for backward compatibility.
+///
+/// # GSS Properties
+///
+/// - `width` - The width of the rectangle (defaults to `0.0`).
+/// - `height` - The height of the rectangle (defaults to `0.0`).
+/// - `color` - The fill color of the rectangle (defaults to `MAGENTA`).
 pub struct RectangleElemet;
 
 impl Element for RectangleElemet {
@@ -821,13 +882,19 @@ impl Element for RectangleElemet {
 
 type UpdateFn<E, Payload> = fn(&mut E, Payload);
 
+/// A wrapper element that triggers an update callback with a payload before rendering the underlying element.
+///
+/// *Note:* This type has a spelling error in its name (`UpdateElemet` instead of `UpdateElement`)
+/// which is preserved for backward compatibility.
 pub struct UpdateElemet<Payload, E: Element>(E, UpdateFn<E, Payload>);
 
 impl<P, E: Element> UpdateElemet<P, E> {
+    /// Creates a new `UpdateElemet` wrapping `element` with an update callback.
     pub fn new(element: E, f: UpdateFn<E, P>) -> Self {
         Self(element, f)
     }
 
+    /// Triggers the update callback on the inner element with the given payload.
     pub fn update(&mut self, payload: P) {
         (self.1)(&mut self.0, payload);
     }
