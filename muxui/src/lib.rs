@@ -993,4 +993,52 @@ mod tests {
             10.0
         );
     }
+
+    #[test]
+    fn test_rectangle_element_measure() {
+        let style = parse_str(
+            r#"
+            rect = {
+                width = 150.0,
+                height = 75.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let element = RectangleElement;
+        let size = element.measure(&style, "rect");
+        assert_eq!(size.x, 150.0);
+        assert_eq!(size.y, 75.0);
+    }
+
+    #[test]
+    fn test_update_element() {
+        struct StateElement {
+            width: f32,
+        }
+        impl Element for StateElement {
+            fn draw(&self, _position: Vector2, _style: &Style, _name: &str) {}
+            fn measure(&self, _style: &Style, _name: &str) -> Vector2 {
+                Vector2::new(self.width, 0.0)
+            }
+        }
+
+        let mut element = UpdateElement::new(
+            StateElement { width: 10.0 },
+            |el: &mut StateElement, payload: f32| {
+                el.width = payload;
+            },
+        );
+
+        let style = Style::new();
+        // Verify initial measurement delegation
+        assert_eq!(element.measure(&style, "test").x, 10.0);
+
+        // Trigger update callback
+        element.update(50.0);
+
+        // Verify state mutation persists and delegates
+        assert_eq!(element.measure(&style, "test").x, 50.0);
+    }
 }
