@@ -1,0 +1,58 @@
+atk_button = {
+    align = "center",
+    valign = "middle",
+    // color = "white",
+    width = 140.0,
+    height = 40.0,
+    frame = true,
+}
+
+atk_bar = {
+    // frame = true,
+    top = 82%,
+    left = 50%,
+    direction = "horizontal",
+    align = "center",
+    gap = 40.0,
+}
+
+hp_bar = {
+    background_color = "white",
+    foreground_color = "green",
+    width = 240.0,
+    height = 30.0,
+}
+
+player_hp_bar = {
+    // frame = true,
+    background_color = hp_bar.background_color,
+    foreground_color = hp_bar.foreground_color,
+    width = hp_bar.width,
+    height = hp_bar.height,
+    top = 12%,
+    left = 22.5%,
+    align = "center",
+    label = {
+        top = 13.5%,
+        left = 18.25%,
+        color = "black",
+        font_size = 16.0,
+    },
+}
+
+enemy_hp_bar = {
+    // frame = true,
+    background_color = hp_bar.background_color,
+    foreground_color = hp_bar.foreground_color,
+    width = hp_bar.width,
+    height = hp_bar.height,
+    top = 12%,
+    left = 77.5%,
+    align = "center",
+    label = {
+        top = 13.5%,
+        left = 75.5%,
+        color = "black",
+        font_size = 16.0,
+    },
+}

@@ -286,7 +286,7 @@ fn parse_object<'lex>(mut lex: RefLexer) -> Parser<Object, Box<dyn StdError>> {
                 let v = try_parse!(lex, parse_value(lex));
                 Parser::Success(lex, (k, v))
             },
-            parse_comma
+            parse_maybe_comma
         )
     );
     try_parse!(lex, parse_close_curly(lex));
@@ -396,6 +396,13 @@ make_expect! {parse_close_curly, TokenKind::CloseCurly, "}" }
 make_expect! {parse_eof, TokenKind::EOF, "EOF" }
 make_expect! {ret, parse_ident, TokenKind::Identifier, "identifier" }
 
+fn parse_maybe_comma<'lex>(lex: RefLexer) -> Parser<(), Box<dyn StdError>> {
+    if lex.peek().kind == TokenKind::Comma {
+        return parse_comma(lex);
+    }
+    Parser::Success(lex, ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,7 +468,7 @@ mod tests {
             }
         "#;
         let result = parse_str(source);
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]

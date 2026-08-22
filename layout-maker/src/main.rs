@@ -25,7 +25,7 @@ fn main() {
     App::init(800, 600, "Layout Maker", init_context)
         .on_update(update)
         .set_fps(24)
-        .set_style_file("temp/layout.ui")
+        .set_style_file("data/layout.ui")
         .run();
 }
 
