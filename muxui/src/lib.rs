@@ -1,3 +1,37 @@
+#![warn(missing_docs)]
+//! # muxui
+//!
+//! A lightweight user interface library built on top of Raylib (`raylib-rs`) and styled
+//! using Graph Style Sheets (GSS).
+//!
+//! ## Overview
+//!
+//! `muxui` provides a simple, declarative way to lay out and render graphical elements in a window.
+//! The library's core structure revolves around:
+//! - [`App`]: The main container driving the application window and render loop.
+//! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
+//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElemet`], [`ButtonElement`], and [`StackLayout`].
+//! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
+//!
+//! ## Basic Example
+//!
+//! ```no_run
+//! use muxui::*;
+//!
+//! struct AppContext;
+//!
+//! fn main() {
+//!     App::init(800, 600, "My App", || AppContext)
+//!         .on_update(|ctx, style| {
+//!             begin_drawing();
+//!             clear_background(get_color(0x181818FF));
+//!             TextElement::new("Hello, Muxui!").place(style, "title");
+//!             end_drawing();
+//!         })
+//!         .run();
+//! }
+//! ```
+
 use std::path::{Path, PathBuf};
 
 use gss::{Gss, load_gss_from_file};
@@ -20,6 +54,7 @@ pub type Style = Gss;
 
 struct Manager<Context> {
     update: Box<dyn Fn(&mut Context, &Style) + 'static>,
+    reload: Box<dyn Fn(&mut Context, &Style) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -31,6 +66,7 @@ pub struct App<Context> {
     height: i32,
     title: String,
     update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
+    reload: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -49,6 +85,7 @@ impl<Context> App<Context> {
             height,
             title: title.into(),
             update: None,
+            reload: None,
             style_file: None,
             fps: DEFAULT_FPS,
             audio_device: false,
@@ -63,6 +100,11 @@ impl<Context> App<Context> {
 
     pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
+        self
+    }
+
+    pub fn on_reload<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
+        self.reload = Some(Box::new(f));
         self
     }
 
@@ -82,6 +124,7 @@ impl<Context> App<Context> {
             height,
             title,
             update,
+            reload,
             style_file,
             fps,
             audio_device,
@@ -105,6 +148,7 @@ impl<Context> App<Context> {
                 begin_drawing();
                 end_drawing();
             })),
+            reload: reload.unwrap_or(Box::new(|_, _| {})),
             style_file,
             fps,
             audio_device,
@@ -118,6 +162,7 @@ impl<Context> App<Context> {
         log_info!("MUXUI: Starting App run loop");
         let Manager {
             update,
+            reload,
             style_file,
             fps,
             audio_device,
@@ -126,16 +171,19 @@ impl<Context> App<Context> {
         set_target_fps(fps);
 
         let (tx, rx) = std::sync::mpsc::channel();
-
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
-        if let Some(ref path) = style_file {
-            let mut _watcher = None;
+        reload(&mut context, &style);
 
+        // 1. Declare the watcher OUTSIDE the block so it lives longer
+        let mut _watcher = None;
+
+        if let Some(ref path) = style_file {
             let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-            // if abs_path.exists() {
+
             if let Some(parent) = abs_path.parent() {
                 let abs_path_clone = abs_path.clone();
                 let tx_clone = tx.clone();
+
                 if let Ok(mut w) =
                     notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                         if let Ok(event) = res {
@@ -152,6 +200,7 @@ impl<Context> App<Context> {
                             "MUXUI: File watcher set up for style file: {}",
                             abs_path.display()
                         );
+                        // 2. Assign it here
                         _watcher = Some(w);
                     } else {
                         log_warn!(
@@ -161,7 +210,6 @@ impl<Context> App<Context> {
                     }
                 }
             }
-            // }
         }
 
         while !window_should_close() {
@@ -177,6 +225,7 @@ impl<Context> App<Context> {
             if should_reload {
                 log_info!("MUXUI: Style file modified. Reloading style...");
                 style = load_style_fallback(style_file.as_ref(), style);
+                reload(&mut context, &style);
             }
 
             update(&mut context, &style);
@@ -394,6 +443,20 @@ impl Element for TextElement {
 
 pub struct TextureElement(Texture2D);
 
+impl std::ops::Deref for TextureElement {
+    type Target = Texture2D;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Texture> for TextureElement {
+    fn from(value: Texture) -> Self {
+        Self(value)
+    }
+}
+
 impl TextureElement {
     pub fn load_from_file(path: impl AsRef<str>) -> Option<Self> {
         let path_str = path.as_ref();
@@ -406,20 +469,27 @@ impl TextureElement {
             None
         }
     }
+    pub fn invalid() -> Self {
+        Self(Texture::default())
+    }
 }
 
 impl Drop for TextureElement {
     fn drop(&mut self) {
-        unload_texture(self.0);
+        if is_texture_valid(self.0) {
+            unload_texture(self.0);
+        }
     }
 }
 
 impl Element for TextureElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
-        let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
-        let color = get_color_field(style, &[name, "color"], WHITE);
-        draw_texture_ex(self.0, position, rotation, scale, color);
+        if is_texture_valid(self.0) {
+            let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
+            let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
+            let color = get_color_field(style, &[name, "color"], MAGENTA);
+            draw_texture_ex(self.0, position, rotation, scale, color);
+        }
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
@@ -456,6 +526,14 @@ impl<E: Element> ButtonElement<E> {
                 MOUSE_CLICK_RADIUS,
                 self.cached_rec.get(),
             )
+    }
+
+    pub fn element(&self) -> &E {
+        &self.element
+    }
+
+    pub fn element_mut(&mut self) -> &mut E {
+        &mut self.element
     }
 }
 
@@ -495,9 +573,7 @@ pub struct StackLayout<'a, 'b> {
 
 impl<'a, 'b> StackLayout<'a, 'b> {
     pub fn new(children: &'b [(&'a str, &'a dyn Element)]) -> Self {
-        Self {
-            children,
-        }
+        Self { children }
     }
 
     pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
@@ -630,10 +706,12 @@ impl Element for RectangleElemet {
     }
 }
 
-pub struct UpdateElemet<Payload, E: Element>(E, fn(&mut E, Payload));
+type UpdateFn<E, Payload> = fn(&mut E, Payload);
+
+pub struct UpdateElemet<Payload, E: Element>(E, UpdateFn<E, Payload>);
 
 impl<P, E: Element> UpdateElemet<P, E> {
-    pub fn new(element: E, f: fn(&mut E, P)) -> Self {
+    pub fn new(element: E, f: UpdateFn<E, P>) -> Self {
         Self(element, f)
     }
 
