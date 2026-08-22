@@ -903,3 +903,94 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
         self.0.measure(style, name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gss::parse_str;
+
+    #[test]
+    fn test_style_get_color_field() {
+        let style = parse_str(
+            r#"
+            btn_red = {
+                color = "red",
+            },
+            btn_hex = {
+                color = 0xFF00FFFF,
+            },
+            btn_missing = {},
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(get_color_field(&style, &["btn_red", "color"], WHITE), RED);
+        assert_eq!(
+            get_color_field(&style, &["btn_hex", "color"], WHITE),
+            get_color(0xFF00FFFF)
+        );
+        assert_eq!(
+            get_color_field(&style, &["btn_missing", "color"], WHITE),
+            WHITE
+        );
+    }
+
+    #[test]
+    fn test_style_get_bool_field() {
+        let style = parse_str(
+            r#"
+            widget = {
+                visible = true,
+            },
+            "#,
+        )
+        .unwrap();
+
+        assert!(get_bool_field(&style, "widget", "visible", false));
+        assert!(!get_bool_field(&style, "widget", "missing", false));
+        assert!(get_bool_field(&style, "widget", "missing", true));
+    }
+
+    #[test]
+    fn test_style_get_f32_field() {
+        let style = parse_str(
+            r#"
+            widget = {
+                size_float = 24.5,
+                size_int = 100,
+            },
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(get_f32_field(&style, &["widget", "size_float"], 0.0), 24.5);
+        assert_eq!(get_f32_field(&style, &["widget", "size_int"], 0.0), 100.0);
+        assert_eq!(get_f32_field(&style, &["widget", "missing"], 5.0), 5.0);
+    }
+
+    #[test]
+    fn test_style_get_relative_field() {
+        let style = parse_str(
+            r#"
+            widget = {
+                pct = 0.5,
+                pixels = 120,
+            },
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            get_relative_field(&style, &["widget", "pct"], 800.0, 0.0),
+            400.0
+        );
+        assert_eq!(
+            get_relative_field(&style, &["widget", "pixels"], 800.0, 0.0),
+            120.0
+        );
+        assert_eq!(
+            get_relative_field(&style, &["widget", "missing"], 800.0, 10.0),
+            10.0
+        );
+    }
+}

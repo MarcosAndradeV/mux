@@ -186,6 +186,17 @@ pub fn load_gss_from_file<P: AsRef<Path>>(file_path: P) -> Result<Gss, Box<dyn S
     Ok(gss)
 }
 
+/// Parses a GSS string into a `Gss` style context.
+pub fn parse_str(source: &str) -> Result<Gss, Box<dyn StdError>> {
+    let mut lex = get_lexer(
+        source,
+        #[cfg(feature = "interning")]
+        "<input>",
+    );
+
+    parse("<input>", &mut lex)
+}
+
 fn get_lexer<#[cfg(feature = "interning")] P: AsRef<Path>>(
     source: &str,
     #[cfg(feature = "interning")] file_path: P,
@@ -406,15 +417,6 @@ fn parse_maybe_comma<'lex>(lex: RefLexer) -> Parser<(), Box<dyn StdError>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn parse_str(source: &str) -> Result<Gss, Box<dyn std::error::Error>> {
-        let mut lex = get_lexer(
-            source,
-            #[cfg(feature = "interning")]
-            file!(),
-        );
-        parse("test_string", &mut lex)
-    }
 
     #[test]
     fn test_parse_success() {
