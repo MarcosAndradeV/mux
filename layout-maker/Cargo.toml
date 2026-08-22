@@ -1,0 +1,12 @@
+[package]
+name = "layout-maker"
+version = "0.1.0"
+edition = "2024"
+default-run = "mklayout"
+
+[dependencies]
+muxui = { path = "../muxui", version = "0.1.0" }
+
+[[bin]]
+name = "mklayout"
+path = "src/main.rs"

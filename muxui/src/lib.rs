@@ -7,48 +7,6 @@ pub use raylib::*;
 
 // raylib helpers commit it back later!
 
-pub fn trace_log(level: TraceLogLevel, message: &str) {
-    let c_msg = std::ffi::CString::new(message).unwrap_or_default();
-    unsafe {
-        TraceLog(level as std::os::raw::c_int, c_msg.as_ptr());
-    }
-}
-
-#[macro_export]
-macro_rules! log_info {
-    ($($arg:tt)*) => {
-        $crate::trace_log($crate::TraceLogLevel_LOG_INFO, &format!($($arg)*))
-    };
-}
-
-#[macro_export]
-macro_rules! log_warn {
-    ($($arg:tt)*) => {
-        $crate::trace_log($crate::TraceLogLevel_LOG_WARNING, &format!($($arg)*))
-    };
-}
-
-#[macro_export]
-macro_rules! log_error {
-    ($($arg:tt)*) => {
-        $crate::trace_log($crate::TraceLogLevel_LOG_ERROR, &format!($($arg)*))
-    };
-}
-
-#[macro_export]
-macro_rules! log_debug {
-    ($($arg:tt)*) => {
-        $crate::trace_log($crate::TraceLogLevel_LOG_DEBUG, &format!($($arg)*))
-    };
-}
-
-#[macro_export]
-macro_rules! log_trace {
-    ($($arg:tt)*) => {
-        $crate::trace_log($crate::TraceLogLevel_LOG_TRACE, &format!($($arg)*))
-    };
-}
-
 const DEFAULT_ROTATION: f32 = 0.0;
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 const DEFAULT_SPACING: f32 = 2.0;
@@ -175,34 +133,34 @@ impl<Context> App<Context> {
 
             let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
             // if abs_path.exists() {
-                if let Some(parent) = abs_path.parent() {
-                    let abs_path_clone = abs_path.clone();
-                    let tx_clone = tx.clone();
-                    if let Ok(mut w) = notify::recommended_watcher(
-                        move |res: Result<notify::Event, notify::Error>| {
-                            if let Ok(event) = res {
-                                if event.paths.iter().any(|p| p == &abs_path_clone) {
-                                    if event.kind.is_modify() || event.kind.is_create() {
-                                        let _ = tx_clone.send(());
-                                    }
+            if let Some(parent) = abs_path.parent() {
+                let abs_path_clone = abs_path.clone();
+                let tx_clone = tx.clone();
+                if let Ok(mut w) =
+                    notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            if event.paths.iter().any(|p| p == &abs_path_clone) {
+                                if event.kind.is_modify() || event.kind.is_create() {
+                                    let _ = tx_clone.send(());
                                 }
                             }
-                        },
-                    ) {
-                        if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
-                            log_info!(
-                                "MUXUI: File watcher set up for style file: {}",
-                                abs_path.display()
-                            );
-                            _watcher = Some(w);
-                        } else {
-                            log_warn!(
-                                "MUXUI: Failed to watch directory for style file: {}",
-                                parent.display()
-                            );
                         }
+                    })
+                {
+                    if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
+                        log_info!(
+                            "MUXUI: File watcher set up for style file: {}",
+                            abs_path.display()
+                        );
+                        _watcher = Some(w);
+                    } else {
+                        log_warn!(
+                            "MUXUI: Failed to watch directory for style file: {}",
+                            parent.display()
+                        );
                     }
                 }
+            }
             // }
         }
 
@@ -324,14 +282,24 @@ fn map_color(string: &str) -> Color {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    None,
+    ButtonClicked,
+}
+
 pub trait Element {
     /// Draw the raw element on the screen at a resolved position
-    fn draw(&self, position: Vector2, style: &Gss, name: &str);
+    fn draw(&self, position: Vector2, style: &Style, name: &str);
     /// Get the element size
     fn measure(&self, style: &Style, name: &str) -> Vector2;
 
+    fn event(&self) -> Event {
+        Event::None
+    }
+
     /// Place the element on the screen
-    fn place(&self, style: &Gss, name: &str) {
+    fn place(&self, style: &Style, name: &str) {
         let position = self.get_position(style, name);
         self.draw(position, style, name);
         if get_bool_field(style, name, "frame", false) {
@@ -481,7 +449,7 @@ impl<E: Element> ButtonElement<E> {
         }
     }
 
-    pub fn click(&self) -> bool {
+    fn click(&self) -> bool {
         is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
             && check_collision_circle_rec(
                 get_mouse_position(),
@@ -511,21 +479,33 @@ impl<E: Element> Element for ButtonElement<E> {
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
         self.element.measure(style, name)
     }
-}
 
-pub struct StackLayout<'a> {
-    pub children: Vec<(String, &'a dyn Element)>,
-}
-
-impl<'a> StackLayout<'a> {
-    pub fn new(children: Vec<(impl Into<String>, &'a dyn Element)>) -> Self {
-        Self {
-            children: children.into_iter().map(|(n, e)| (n.into(), e)).collect(),
+    fn event(&self) -> Event {
+        if self.click() {
+            Event::ButtonClicked
+        } else {
+            Event::None
         }
     }
 }
 
-impl<'a> Element for StackLayout<'a> {
+pub struct StackLayout<'a, 'b> {
+    children: &'b [(&'a str, &'a dyn Element)],
+}
+
+impl<'a, 'b> StackLayout<'a, 'b> {
+    pub fn new(children: &'b [(&'a str, &'a dyn Element)]) -> Self {
+        Self {
+            children,
+        }
+    }
+
+    pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
+        &self.children
+    }
+}
+
+impl<'a, 'b> Element for StackLayout<'a, 'b> {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
         let direction = style
             .get::<String>(&[name, "direction"])
@@ -535,7 +515,7 @@ impl<'a> Element for StackLayout<'a> {
         let stack_size = self.measure(style, name);
 
         let mut offset = 0.0;
-        for (child_name, child) in &self.children {
+        for (child_name, child) in self.children {
             let child_size = child.measure(style, child_name);
 
             let child_pos = match direction.as_str() {
@@ -599,7 +579,7 @@ impl<'a> Element for StackLayout<'a> {
         let mut height: f32 = 0.0;
         let mut count = 0;
 
-        for (child_name, child) in &self.children {
+        for (child_name, child) in self.children {
             let child_size = child.measure(style, child_name);
             match direction.as_str() {
                 "horizontal" => {
@@ -626,5 +606,48 @@ impl<'a> Element for StackLayout<'a> {
             x: width,
             y: height,
         }
+    }
+}
+
+pub struct RectangleElemet;
+
+impl Element for RectangleElemet {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        unsafe {
+            DrawRectangleV(
+                position,
+                self.measure(style, name),
+                get_color_field(style, &[name, "color"], MAGENTA),
+            )
+        };
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        Vector2::new(
+            style.get_or_default(&[name, "width"]),
+            style.get_or_default(&[name, "height"]),
+        )
+    }
+}
+
+pub struct UpdateElemet<Payload, E: Element>(E, fn(&mut E, Payload));
+
+impl<P, E: Element> UpdateElemet<P, E> {
+    pub fn new(element: E, f: fn(&mut E, P)) -> Self {
+        Self(element, f)
+    }
+
+    pub fn update(&mut self, payload: P) {
+        (self.1)(&mut self.0, payload);
+    }
+}
+
+impl<P, E: Element> Element for UpdateElemet<P, E> {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        self.0.draw(position, style, name);
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        self.0.measure(style, name)
     }
 }

@@ -1,7 +1,12 @@
 [workspace]
 
 members = [
-    "muxui"
+    "muxui",
+    "raylib-rs",
+    "GSS",
+    "layout-maker"
 ]
 
 resolver = "3"
+
+default-run = "layout-maker"
