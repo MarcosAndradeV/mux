@@ -1137,4 +1137,146 @@ mod tests {
         assert_eq!(size.x, 125.0);
         assert_eq!(size.y, 40.0);
     }
+
+    #[test]
+    fn test_stack_layout_positioning_vertical() {
+        let style = parse_str(
+            r#"
+            layout = {
+                direction = "vertical",
+                gap = 10.0,
+            },
+            child1 = {},
+            child2 = {
+                align = "center",
+            },
+            child3 = {
+                align = "right",
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(50.0, 30.0);
+        let child2 = MockElement::new(40.0, 20.0);
+        let child3 = MockElement::new(30.0, 10.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+        ];
+
+        let stack = StackLayout::new(children);
+        let base_pos = Vector2::new(100.0, 100.0);
+        stack.draw(base_pos, &style, "layout");
+
+        // Verify draw positions
+        let pos1 = child1.draw_positions.borrow()[0];
+        let pos2 = child2.draw_positions.borrow()[0];
+        let pos3 = child3.draw_positions.borrow()[0];
+
+        // child 1: base position (default top=0, left=0 relative to base, align default is left)
+        assert_eq!(pos1.x, 100.0);
+        assert_eq!(pos1.y, 100.0);
+
+        // child 2: base y + height1 + gap = 100 + 30 + 10 = 140.0. x centered: 100 + (50 - 40) / 2 = 105.0
+        assert_eq!(pos2.x, 105.0);
+        assert_eq!(pos2.y, 140.0);
+
+        // child 3: base y + height1 + height2 + 2*gap = 140 + 20 + 10 = 170.0. x right: 100 + 50 - 30 = 120.0
+        assert_eq!(pos3.x, 120.0);
+        assert_eq!(pos3.y, 170.0);
+    }
+
+    #[test]
+    fn test_stack_layout_positioning_horizontal() {
+        let style = parse_str(
+            r#"
+            layout = {
+                direction = "horizontal",
+                gap = 5.0,
+            },
+            child1 = {},
+            child2 = {
+                valign = "center",
+            },
+            child3 = {
+                valign = "bottom",
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(30.0, 50.0);
+        let child2 = MockElement::new(20.0, 40.0);
+        let child3 = MockElement::new(10.0, 30.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+        ];
+
+        let stack = StackLayout::new(children);
+        let base_pos = Vector2::new(100.0, 100.0);
+        stack.draw(base_pos, &style, "layout");
+
+        // Verify draw positions
+        let pos1 = child1.draw_positions.borrow()[0];
+        let pos2 = child2.draw_positions.borrow()[0];
+        let pos3 = child3.draw_positions.borrow()[0];
+
+        // child 1: base position
+        assert_eq!(pos1.x, 100.0);
+        assert_eq!(pos1.y, 100.0);
+
+        // child 2: base x + width1 + gap = 100 + 30 + 5 = 135.0. y centered: 100 + (50 - 40) / 2 = 105.0
+        assert_eq!(pos2.x, 135.0);
+        assert_eq!(pos2.y, 105.0);
+
+        // child 3: base x + width1 + width2 + 2*gap = 135 + 20 + 5 = 160.0. y bottom: 100 + 50 - 30 = 120.0
+        assert_eq!(pos3.x, 160.0);
+        assert_eq!(pos3.y, 120.0);
+    }
+
+    #[test]
+    fn test_stack_layout_defaults_and_edge_cases() {
+        // Missing GSS layout settings (should default to vertical and gap 0.0)
+        let style = parse_str(
+            r#"
+            layout = {},
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(10.0, 20.0);
+        let child2 = MockElement::new(15.0, 30.0);
+
+        // 1. Test defaults measurement
+        {
+            let children: &[(&str, &dyn Element)] = &[("child1", &child1), ("child2", &child2)];
+            let stack = StackLayout::new(children);
+            let size = stack.measure(&style, "layout");
+            // Vertical default: max width = 15.0, sum height = 50.0
+            assert_eq!(size.x, 15.0);
+            assert_eq!(size.y, 50.0);
+        }
+
+        // 2. Test 0 children edge case
+        {
+            let children: &[(&str, &dyn Element)] = &[];
+            let stack = StackLayout::new(children);
+            let size = stack.measure(&style, "layout");
+            assert_eq!(size.x, 0.0);
+            assert_eq!(size.y, 0.0);
+        }
+
+        // 3. Test 1 child edge case
+        {
+            let children: &[(&str, &dyn Element)] = &[("child1", &child1)];
+            let stack = StackLayout::new(children);
+            let size = stack.measure(&style, "layout");
+            assert_eq!(size.x, 10.0);
+            assert_eq!(size.y, 20.0);
+        }
+    }
 }
