@@ -408,17 +408,47 @@ pub enum Event {
     ButtonClicked,
 }
 
+/// The base trait for all UI elements and layout managers in `muxui`.
+///
+/// Implementers of this trait can be measured, drawn, and optionally handle user
+/// interaction events.
 pub trait Element {
-    /// Draw the raw element on the screen at a resolved position
+    /// Draws the element on the screen at the resolved position.
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - The absolute Vector2 coordinate where the element should be rendered.
+    /// * `style` - The stylesheet to use for rendering properties (e.g. colors, spacing).
+    /// * `name` - The unique stylesheet selector name for this element instance.
     fn draw(&self, position: Vector2, style: &Style, name: &str);
-    /// Get the element size
+
+    /// Measures the dimensions of this element under the given style.
+    ///
+    /// Returns a [`Vector2`] representing the width (`x`) and height (`y`) of the element.
+    ///
+    /// # Arguments
+    ///
+    /// * `style` - The stylesheet to use for resolving sizes.
+    /// * `name` - The unique stylesheet selector name for this element.
     fn measure(&self, style: &Style, name: &str) -> Vector2;
 
+    /// Checks if any interactive event occurred on this element.
+    ///
+    /// Returns the corresponding [`Event`], or [`Event::None`] by default if the element is non-interactive.
     fn event(&self) -> Event {
         Event::None
     }
 
-    /// Place the element on the screen
+    /// Calculates the element's position based on its style rules, renders it,
+    /// and optionally draws a debug border if configured via style.
+    ///
+    /// If the boolean field `"frame"` is `true` for this element in the stylesheet,
+    /// a green bounding box of thickness `2.0` is drawn around the element.
+    ///
+    /// # Arguments
+    ///
+    /// * `style` - The stylesheet context.
+    /// * `name` - The unique style selector name.
     fn place(&self, style: &Style, name: &str) {
         let position = self.get_position(style, name);
         self.draw(position, style, name);
@@ -427,8 +457,13 @@ pub trait Element {
         }
     }
 
-    /// Get the element [`Rectangle`]
-    fn get_rec(&self, style: &Gss, name: &str) -> Rectangle {
+    /// Computes and returns the layout bounding box ([`Rectangle`]) of the element.
+    ///
+    /// # Arguments
+    ///
+    /// * `style` - The stylesheet context.
+    /// * `name` - The unique style selector name.
+    fn get_rec(&self, style: &Style, name: &str) -> Rectangle {
         let Vector2 { x, y } = self.get_position(style, name);
         let Vector2 {
             x: width,
@@ -442,8 +477,15 @@ pub trait Element {
         }
     }
 
-    /// Get the element 2d position as [`Vector2`]
-    fn get_position(&self, style: &Gss, name: &str) -> Vector2 {
+    /// Computes the absolute screen position of this element.
+    ///
+    /// Resolves properties like `"left"`, `"top"`, `"align"`, and `"valign"` relative to screen size.
+    ///
+    /// # Arguments
+    ///
+    /// * `style` - The stylesheet context.
+    /// * `name` - The unique style selector name.
+    fn get_position(&self, style: &Style, name: &str) -> Vector2 {
         let mut x = get_relative_field(style, &[name, "left"], get_screen_width() as f32, 0.0);
         let mut y = get_relative_field(style, &[name, "top"], get_screen_height() as f32, 0.0);
         let size = self.measure(style, name);
