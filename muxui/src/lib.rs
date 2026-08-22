@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 //! # muxui
 //!
 //! A lightweight user interface library built on top of Raylib (`raylib-rs`) and styled
@@ -487,7 +487,7 @@ impl Element for TextureElement {
         if is_texture_valid(self.0) {
             let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
             let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
-            let color = get_color_field(style, &[name, "color"], MAGENTA);
+            let color = get_color_field(style, &[name, "color"], WHITE);
             draw_texture_ex(self.0, position, rotation, scale, color);
         }
     }
