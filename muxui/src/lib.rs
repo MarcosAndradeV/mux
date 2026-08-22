@@ -50,6 +50,7 @@ const DEFAULT_FPS: i32 = 24;
 const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
 const MOUSE_CLICK_RADIUS: f32 = 2.0;
 
+/// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
 pub type Style = Gss;
 
 struct Manager<Context> {
@@ -61,6 +62,12 @@ struct Manager<Context> {
     context: Context,
 }
 
+/// The main application runner that initializes the Raylib window, sets up event loops,
+/// handles style reloading (both on F5 and automatic filesystem modification watch), and processes frame updates.
+///
+/// # Type Parameters
+///
+/// * `Context` - The application-defined state/context type passed to callbacks.
 pub struct App<Context> {
     width: i32,
     height: i32,
@@ -74,6 +81,14 @@ pub struct App<Context> {
 }
 
 impl<Context> App<Context> {
+    /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The width of the application window in pixels.
+    /// * `height` - The height of the application window in pixels.
+    /// * `title` - The title of the application window.
+    /// * `init_context` - A closure that generates the initial application-defined state/context.
     pub fn init<F: FnOnce() -> Context + 'static>(
         width: i32,
         height: i32,
@@ -93,26 +108,57 @@ impl<Context> App<Context> {
         }
     }
 
+    /// Enables the audio device for the application.
+    ///
+    /// If called, the audio device is initialized when the application starts running, and closed on cleanup.
     pub fn set_audio_device(mut self) -> Self {
         self.audio_device = true;
         self
     }
 
+    /// Sets the callback function to run on every frame update.
+    ///
+    /// The update function is called on every frame and is responsible for processing events,
+    /// updating the state, and drawing elements to the screen.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that accepts the mutable application context and style context.
     pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
         self
     }
 
+    /// Sets the callback function to run when the style file is reloaded.
+    ///
+    /// The callback receives the mutable context and the newly loaded style.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that accepts the mutable application context and style context.
     pub fn on_reload<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.reload = Some(Box::new(f));
         self
     }
 
+    /// Sets the file path for the style sheet configuration.
+    ///
+    /// If configured, the app will watch this file for modifications and reload it automatically
+    /// at runtime. The file can also be reloaded manually by pressing the F5 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path to the style sheet (e.g. "style.gss").
     pub fn set_style_file(mut self, path: &str) -> Self {
         self.style_file = Some(PathBuf::from(path));
         self
     }
 
+    /// Sets the target frames per second (FPS) for the update loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `fps` - The target frame rate (e.g. 60).
     pub fn set_fps(mut self, fps: i32) -> Self {
         self.fps = fps;
         self
@@ -158,6 +204,11 @@ impl<Context> App<Context> {
 }
 
 impl<Context> App<Context> {
+    /// Runs the main application loop.
+    ///
+    /// This method builds the application manager, initializes the Raylib window,
+    /// sets up the filesystem modification watcher if a style file was specified,
+    /// and executes the update loop until the window is requested to close.
     pub fn run(self) {
         log_info!("MUXUI: Starting App run loop");
         let Manager {
