@@ -144,6 +144,8 @@ dependencies = [
 name = "layout-maker"
 version = "0.1.0"
 dependencies = [
+ "gss",
+ "mux-engine",
  "muxui",
 ]
 
@@ -197,6 +199,14 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mux-engine"
+version = "0.1.0"
+dependencies = [
+ "gss",
+ "raylib",
 ]
 
 [[package]]

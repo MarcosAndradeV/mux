@@ -1,0 +1,8 @@
+[package]
+name = "mux-engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gss = { path = "../GSS", version = "0.1.0", features = ["interning"] }
+raylib = { path = "../raylib-rs", version = "0.1.0" }

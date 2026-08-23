@@ -4,7 +4,8 @@ members = [
     "muxui",
     "raylib-rs",
     "GSS",
-    "layout-maker"
+    "layout-maker",
+    "mux-engine"
 ]
 
 resolver = "3"

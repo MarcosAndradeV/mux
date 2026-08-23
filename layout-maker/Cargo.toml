@@ -6,6 +6,8 @@ default-run = "mklayout"
 
 [dependencies]
 muxui = { path = "../muxui", version = "0.1.0" }
+mux-engine = { path = "../mux-engine", version = "0.1.0" }
+gss = { path = "../GSS", version = "0.1.0" }
 
 [[bin]]
 name = "mklayout"
