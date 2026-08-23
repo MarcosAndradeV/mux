@@ -1,9 +1,9 @@
 use muxui::*;
 
 struct Ui {
-    attack_buttons: Vec<ButtonElement<UpdateElement<Texture, TextureElement>>>,
-    player_hp_bar: UpdateElement<(u32, u32), HpBarElemet>,
-    enemy_hp_bar: UpdateElement<(u32, u32), HpBarElemet>,
+    attack_buttons: Vec<ButtonElement<RectangleElement>>,
+    player_hp_bar: UpdateElement<(u32, u32), HpBarElement>,
+    enemy_hp_bar: UpdateElement<(u32, u32), HpBarElement>,
 }
 
 struct Context {
@@ -12,20 +12,11 @@ struct Context {
     enemy_hp: (u32, u32),
 }
 
-fn create_btn_texture() -> Texture {
-    unsafe {
-        let image = GenImageChecked(140, 40, 32, 32, RED, BLUE);
-        let texture = LoadTextureFromImage(image);
-        UnloadImage(image);
-        texture
-    }
-}
-
 fn main() {
     App::init(800, 600, "Layout Maker", init_context)
         .on_update(update)
         .set_fps(24)
-        .set_style_file("data/layout.ui")
+        .set_style_file("data/layout.gss")
         .run();
 }
 
@@ -33,25 +24,13 @@ fn init_context() -> Context {
     Context {
         ui: Ui {
             attack_buttons: vec![
-                ButtonElement::new(UpdateElement::new(
-                    TextureElement::from(create_btn_texture()),
-                    update_texture,
-                )),
-                ButtonElement::new(UpdateElement::new(
-                    TextureElement::from(create_btn_texture()),
-                    update_texture,
-                )),
-                ButtonElement::new(UpdateElement::new(
-                    TextureElement::from(create_btn_texture()),
-                    update_texture,
-                )),
-                ButtonElement::new(UpdateElement::new(
-                    TextureElement::from(create_btn_texture()),
-                    update_texture,
-                )),
+                ButtonElement::new(RectangleElement),
+                ButtonElement::new(RectangleElement),
+                ButtonElement::new(RectangleElement),
+                ButtonElement::new(RectangleElement),
             ],
             player_hp_bar: UpdateElement::new(
-                HpBarElemet {
+                HpBarElement {
                     invert: false,
                     current: 0,
                     max: 0,
@@ -59,7 +38,7 @@ fn init_context() -> Context {
                 update_hp_bar,
             ),
             enemy_hp_bar: UpdateElement::new(
-                HpBarElemet {
+                HpBarElement {
                     invert: true,
                     current: 0,
                     max: 0,
@@ -91,32 +70,38 @@ fn update(ctx: &mut Context, style: &Style) {
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
-        .place(style, "atk_bar");
-        ctx.ui.player_hp_bar.place(style, "player_hp_bar");
-        ctx.ui.enemy_hp_bar.place(style, "enemy_hp_bar");
+        .place(style, "atk_button_stack");
+        StackLayout::new(&[
+            ("player_hp_bar", &ctx.ui.player_hp_bar),
+            ("vs_text", &TextElement::new("VS")),
+            ("enemy_hp_bar", &ctx.ui.enemy_hp_bar),
+        ])
+        .place(style, "top_hp_bar_stack");
     }
     end_drawing();
 }
 
-struct HpBarElemet {
+// type AnimationElement<E> = UpdateElement<(), E>;
+
+struct HpBarElement {
     invert: bool,
     current: u32,
     max: u32,
 }
 
-impl Element for HpBarElemet {
+impl Element for HpBarElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
         unsafe {
+            let size = self.measure(style, name);
             DrawRectangleV(
                 position,
-                self.measure(style, name),
+                size,
                 get_color_field(style, &[name, "background_color"], WHITE),
             );
 
             let percent = self.current as f32 / self.max as f32;
-            let size = self.measure(style, name);
 
-            let position = if self.invert {
+            let position_percent = if self.invert {
                 let Vector2 { x, y } = position;
                 let w = size.x;
 
@@ -127,7 +112,7 @@ impl Element for HpBarElemet {
                 position
             };
 
-            let size = {
+            let size_percent = {
                 let Vector2 { x: w, y: h } = size;
 
                 let w = w * percent;
@@ -135,12 +120,12 @@ impl Element for HpBarElemet {
             };
 
             DrawRectangleV(
-                position,
-                size,
+                position_percent,
+                size_percent,
                 get_color_field(style, &[name, "foreground_color"], GREEN),
             );
             if let Some(this) = style.get(&[name]) {
-                TextElement::new(format!("{}/{}", self.max, self.current)).place(this, "label");
+                TextElement::new(format!("{}/{}", self.max, self.current)).place(this, "hp_text");
             }
         };
     }
@@ -153,11 +138,7 @@ impl Element for HpBarElemet {
     }
 }
 
-fn update_hp_bar(e: &mut HpBarElemet, (current, max): (u32, u32)) {
+fn update_hp_bar(e: &mut HpBarElement, (current, max): (u32, u32)) {
     e.current = current;
     e.max = max;
-}
-
-fn update_texture(e: &mut TextureElement, t: Texture) {
-    *e = TextureElement::from(t);
 }

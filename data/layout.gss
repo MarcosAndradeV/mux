@@ -1,13 +1,12 @@
 atk_button = {
     align = "center",
     valign = "middle",
-    // color = "white",
+    color = "white",
     width = 140.0,
     height = 40.0,
-    frame = true,
 }
 
-atk_bar = {
+atk_button_stack = {
     // frame = true,
     top = 82%,
     left = 50%,
@@ -16,12 +15,27 @@ atk_bar = {
     gap = 40.0,
 }
 
+top_hp_bar_stack = {
+    // frame = true,
+    top = 12%,
+    left = 50%,
+    direction = "horizontal",
+    align = "center",
+    gap = 100.0,
+}
+
+vs_text = {
+    valign = "center",
+}
+
 hp_bar = {
     background_color = "white",
     foreground_color = "green",
     width = 240.0,
     height = 30.0,
 }
+
+
 
 player_hp_bar = {
     // frame = true,
@@ -32,12 +46,13 @@ player_hp_bar = {
     top = 12%,
     left = 22.5%,
     align = "center",
-    label = {
-        top = 13.5%,
-        left = 18.25%,
+    hp_text = {
+        top = 13%,
+        left = 22.5%,
         color = "black",
         font_size = 16.0,
-    },
+        align = "center",
+    }
 }
 
 enemy_hp_bar = {
@@ -49,10 +64,11 @@ enemy_hp_bar = {
     top = 12%,
     left = 77.5%,
     align = "center",
-    label = {
-        top = 13.5%,
-        left = 75.5%,
+    hp_text = {
+        top = 13%,
+        left = 77.5%,
         color = "black",
         font_size = 16.0,
-    },
+        align = "center",
+    }
 }
