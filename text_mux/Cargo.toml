@@ -1,12 +1,12 @@
 [package]
-name = "layout-maker"
+name = "text-mux"
 version = "0.1.0"
 edition = "2024"
-default-run = "mklayout"
+default-run = "text-mux"
 
 [dependencies]
 muxapp = { path = "../muxapp", version = "0.1.0" }
 
 [[bin]]
-name = "mklayout"
+name = "text-mux"
 path = "src/main.rs"

@@ -4,10 +4,10 @@ members = [
     "muxui",
     "muxengine",
     "muxapp",
+    "muxutils",
     "raylib-rs",
     "GSS",
-    "layout-maker",
-    "muxutils",
+    "text-mux",
 ]
 
 resolver = "3"
