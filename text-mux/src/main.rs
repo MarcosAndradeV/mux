@@ -45,7 +45,7 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         ctx.background_texture_element = TextureElement::load_from_file(&view.background_texture);
     }
 
-    let mouse_pos = get_mouse_position();
+    let mouse_pos = get_virtual_mouse_position();
     let mut hovered_hotspot = None;
     let mut drawable_hotspot = Vec::new();
     let hotspots_style = view.get_hotspots_style(style);
@@ -78,15 +78,7 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         }
     }
 
-    begin_drawing();
     clear_background(get_color(0x181818FF));
-
-    // Draw active hotspots using HotspotElement::place
-    if let Some(hotspots_style) = hotspots_style {
-        for el in drawable_hotspot {
-            el.place(hotspots_style, &el.id);
-        }
-    }
 
     // Render background (fallback colors based on active scene)
     if view.scene_id == "hallway" {
@@ -96,6 +88,13 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         }
     } else if view.scene_id == "kitchen" {
         clear_background(get_color(0x1C2830FF)); // Slate blue for kitchen
+    }
+
+    // Draw active hotspots using HotspotElement::place
+    if let Some(hotspots_style) = hotspots_style {
+        for el in drawable_hotspot {
+            el.place(hotspots_style, &el.id);
+        }
     }
 
     // Draw scene header text
@@ -148,6 +147,4 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
             draw_text(cstr!(&tooltip_str), box_x + 8, box_y + 5, font_sz, YELLOW);
         }
     }
-
-    end_drawing();
 }

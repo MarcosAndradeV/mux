@@ -9,7 +9,122 @@ pub const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
 pub const MOUSE_CLICK_RADIUS: f32 = 2.0;
 pub const DEFAULT_FPS: i32 = 24;
 
-// raylib helpers commit it back later!
+/// Represents the virtual viewport scaling configuration for aspect-preserved resolution.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewportState {
+    /// Virtual canvas width.
+    pub virtual_width: f32,
+    /// Virtual canvas height.
+    pub virtual_height: f32,
+    /// Actual window width.
+    pub window_width: f32,
+    /// Actual window height.
+    pub window_height: f32,
+    /// Viewport scaling ratio.
+    pub scale: f32,
+    /// Horizontal offset for letterboxing.
+    pub offset_x: f32,
+    /// Vertical offset for letterboxing.
+    pub offset_y: f32,
+    /// Scaled viewport width inside window.
+    pub viewport_width: f32,
+    /// Scaled viewport height inside window.
+    pub viewport_height: f32,
+}
+
+impl Default for ViewportState {
+    fn default() -> Self {
+        Self {
+            virtual_width: 800.0,
+            virtual_height: 600.0,
+            window_width: 800.0,
+            window_height: 600.0,
+            scale: 1.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            viewport_width: 800.0,
+            viewport_height: 600.0,
+        }
+    }
+}
+
+static VIEWPORT: std::sync::RwLock<ViewportState> = std::sync::RwLock::new(ViewportState {
+    virtual_width: 800.0,
+    virtual_height: 600.0,
+    window_width: 800.0,
+    window_height: 600.0,
+    scale: 1.0,
+    offset_x: 0.0,
+    offset_y: 0.0,
+    viewport_width: 800.0,
+    viewport_height: 600.0,
+});
+
+/// Sets the current virtual viewport state and calculates letterbox scaling offsets.
+pub fn set_viewport(virtual_w: f32, virtual_h: f32, window_w: f32, window_h: f32) {
+    let scale = (window_w / virtual_w).min(window_h / virtual_h);
+    let viewport_width = virtual_w * scale;
+    let viewport_height = virtual_h * scale;
+    let offset_x = (window_w - viewport_width) / 2.0;
+    let offset_y = (window_h - viewport_height) / 2.0;
+
+    if let Ok(mut vp) = VIEWPORT.write() {
+        *vp = ViewportState {
+            virtual_width: virtual_w,
+            virtual_height: virtual_h,
+            window_width: window_w,
+            window_height: window_h,
+            scale,
+            offset_x,
+            offset_y,
+            viewport_width,
+            viewport_height,
+        };
+    }
+}
+
+/// Returns a copy of the current [`ViewportState`].
+pub fn get_viewport_state() -> ViewportState {
+    VIEWPORT.read().map(|vp| *vp).unwrap_or_default()
+}
+
+/// Retrieves the virtual screen width.
+pub fn get_virtual_screen_width() -> f32 {
+    get_viewport_state().virtual_width
+}
+
+/// Retrieves the virtual screen height.
+pub fn get_virtual_screen_height() -> f32 {
+    get_viewport_state().virtual_height
+}
+
+/// Retrieves the virtual screen dimensions as a [`raylib::Vector2`].
+pub fn get_virtual_screen_size() -> raylib::Vector2 {
+    let vp = get_viewport_state();
+    raylib::Vector2::new(vp.virtual_width, vp.virtual_height)
+}
+
+/// Computes the transformed mouse position in virtual canvas coordinates.
+pub fn get_virtual_mouse_position() -> raylib::Vector2 {
+    let vp = get_viewport_state();
+    let raw_mouse = raylib::get_mouse_position();
+    let x = (raw_mouse.x - vp.offset_x) / vp.scale;
+    let y = (raw_mouse.y - vp.offset_y) / vp.scale;
+    raylib::Vector2::new(x, y)
+}
+
+/// Computes the source (OpenGL inverted Y) and destination (window letterbox) rectangles.
+pub fn get_viewport_rects() -> (raylib::Rectangle, raylib::Rectangle) {
+    let vp = get_viewport_state();
+    let src = raylib::Rectangle::new(0.0, 0.0, vp.virtual_width, -vp.virtual_height);
+    let dest = raylib::Rectangle::new(
+        vp.offset_x,
+        vp.offset_y,
+        vp.viewport_width,
+        vp.viewport_height,
+    );
+    (src, dest)
+}
 
 pub fn map_color(string: &str) -> raylib::Color {
     match string {
@@ -101,5 +216,39 @@ pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> Stri
         val.clone()
     } else {
         default.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_viewport_calculation() {
+        // Virtual 800x600, Window 1600x1200 -> Scale 2.0, Offset (0, 0)
+        set_viewport(800.0, 600.0, 1600.0, 1200.0);
+        let vp = get_viewport_state();
+        assert_eq!(vp.scale, 2.0);
+        assert_eq!(vp.offset_x, 0.0);
+        assert_eq!(vp.offset_y, 0.0);
+        assert_eq!(vp.viewport_width, 1600.0);
+        assert_eq!(vp.viewport_height, 1200.0);
+
+        // Virtual 800x600, Window 1920x1080 -> Scale 1.8, Viewport 1440x1080, Offset_x 240
+        set_viewport(800.0, 600.0, 1920.0, 1080.0);
+        let vp = get_viewport_state();
+        assert_eq!(vp.scale, 1.8);
+        assert_eq!(vp.offset_x, 240.0);
+        assert_eq!(vp.offset_y, 0.0);
+        assert_eq!(vp.viewport_width, 1440.0);
+        assert_eq!(vp.viewport_height, 1080.0);
+
+        let (src, dest) = get_viewport_rects();
+        assert_eq!(src.width, 800.0);
+        assert_eq!(src.height, -600.0);
+        assert_eq!(dest.x, 240.0);
+        assert_eq!(dest.y, 0.0);
+        assert_eq!(dest.width, 1440.0);
+        assert_eq!(dest.height, 1080.0);
     }
 }

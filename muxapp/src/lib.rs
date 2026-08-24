@@ -45,6 +45,8 @@ struct Manager<Context> {
     audio_device: bool,
     context: Context,
     initial_scene: Option<String>,
+    virtual_width: i32,
+    virtual_height: i32,
 }
 
 /// The main application runner that initializes the Raylib window, sets up event loops,
@@ -56,6 +58,8 @@ struct Manager<Context> {
 pub struct App<Context> {
     width: i32,
     height: i32,
+    virtual_width: i32,
+    virtual_height: i32,
     title: String,
     update: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
     load: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
@@ -85,6 +89,8 @@ impl<Context> App<Context> {
         Self {
             width,
             height,
+            virtual_width: width,
+            virtual_height: height,
             title: title.into(),
             update: None,
             load: None,
@@ -95,6 +101,18 @@ impl<Context> App<Context> {
             audio_device: false,
             init_context: Box::new(init_context),
         }
+    }
+
+    /// Sets the fixed internal virtual resolution for rendering offscreen textures.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The virtual canvas width in pixels.
+    /// * `height` - The virtual canvas height in pixels.
+    pub fn set_virtual_resolution(mut self, width: i32, height: i32) -> Self {
+        self.virtual_width = width;
+        self.virtual_height = height;
+        self
     }
 
     /// Enables the audio device for the application.
@@ -172,6 +190,8 @@ impl<Context> App<Context> {
         let Self {
             width,
             height,
+            virtual_width,
+            virtual_height,
             title,
             update,
             load,
@@ -183,9 +203,11 @@ impl<Context> App<Context> {
             script_hook,
         } = self;
         log_info!(
-            "MUX: Initializing window: {}x{} - \"{}\"",
+            "MUX: Initializing window: {}x{} (Virtual: {}x{}) - \"{}\"",
             width,
             height,
+            virtual_width,
+            virtual_height,
             title
         );
         unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
@@ -196,10 +218,7 @@ impl<Context> App<Context> {
         }
 
         Manager {
-            update: update.unwrap_or(Box::new(|_, _, _| {
-                begin_drawing();
-                end_drawing();
-            })),
+            update: update.unwrap_or(Box::new(|_, _, _| {})),
             load: load.unwrap_or(Box::new(|_, _, _| {})),
             script_hook: script_hook.unwrap_or(Box::new(|_, _| None)),
             style_file,
@@ -207,6 +226,8 @@ impl<Context> App<Context> {
             audio_device,
             context: init_context(),
             initial_scene,
+            virtual_width,
+            virtual_height,
         }
     }
 
@@ -234,8 +255,12 @@ impl<Context> App<Context> {
             audio_device,
             mut context,
             script_hook,
+            virtual_width,
+            virtual_height,
         } = self.build();
         set_target_fps(fps);
+
+        let target = load_render_texture(virtual_width, virtual_height);
 
         let (tx, rx) = std::sync::mpsc::channel();
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
@@ -283,6 +308,15 @@ impl<Context> App<Context> {
         }
 
         while !window_should_close() {
+            let window_w = get_screen_width() as f32;
+            let window_h = get_screen_height() as f32;
+            muxutils::set_viewport(
+                virtual_width as f32,
+                virtual_height as f32,
+                window_w,
+                window_h,
+            );
+
             if is_key_pressed(KEY_F5) {
                 log_info!("MUX: F5 pressed. Reloading style...");
                 style = load_style_fallback(style_file.as_ref(), style);
@@ -298,8 +332,22 @@ impl<Context> App<Context> {
                 load(&mut context, &mut engine, &style);
             }
 
+            begin_texture_mode(target);
+            clear_background(get_color(0x181818FF));
             update(&mut context, &mut engine, &style);
+            end_texture_mode();
+
+            begin_drawing();
+            clear_background(BLACK);
+            let (src, dest) = muxutils::get_viewport_rects();
+            draw_texture_pro(target.texture, src, dest, Vector2::zero(), 0.0, WHITE);
+            end_drawing();
         }
+
+        if is_render_texture_valid(target) {
+            unload_render_texture(target);
+        }
+
         log_info!("MUX: Window close requested. Cleaning up...");
         drop(context);
         if audio_device {

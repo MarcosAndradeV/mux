@@ -262,6 +262,39 @@ pub fn draw_texture_ex(
     }
 }
 
+pub fn draw_texture_pro(
+    texture: Texture2D,
+    source: Rectangle,
+    dest: Rectangle,
+    origin: Vector2,
+    rotation: f32,
+    tint: Color,
+) {
+    unsafe {
+        DrawTexturePro(texture, source, dest, origin, rotation, tint);
+    }
+}
+
+pub fn load_render_texture(width: i32, height: i32) -> RenderTexture2D {
+    unsafe { LoadRenderTexture(width, height) }
+}
+
+pub fn is_render_texture_valid(target: RenderTexture2D) -> bool {
+    unsafe { IsRenderTextureValid(target) }
+}
+
+pub fn unload_render_texture(target: RenderTexture2D) {
+    unsafe { UnloadRenderTexture(target) }
+}
+
+pub fn begin_texture_mode(target: RenderTexture2D) {
+    unsafe { BeginTextureMode(target) }
+}
+
+pub fn end_texture_mode() {
+    unsafe { EndTextureMode() }
+}
+
 // Some Basic Colors
 // NOTE: Custom raylib color palette for amazing visuals on WHITE background
 pub const LIGHTGRAY: Color = Color {
