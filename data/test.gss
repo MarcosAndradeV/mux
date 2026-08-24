@@ -1,0 +1,92 @@
+dialogue_box = {
+    top = 73%,
+    left = 2.5%,
+    width = 760.0,
+    height = 140.0,
+    background_color = 0x0C0C0CFF,
+    border_color = 0xD4AF37FF, // Gold
+    color = "white",
+    speaker = {
+        font_size = 20.0,
+        color = 0xD4AF37FF,
+    },
+    text = {
+        font_size = 18.0,
+    },
+    prompt = {
+        font_size = 12.0,
+        color = "gray",
+    }
+}
+
+inventory_panel = {
+    top = 3%,
+    left = 68%,
+    font_size = 16.0,
+    gap = 20.0,
+    title = {
+        color = "gray",
+    },
+    item = {
+        color = "gold",
+    }
+}
+
+hallway = {
+    top = 10%
+    left = 10%
+    scale = 300%
+}
+
+scenes = {
+    hallway = {
+        background = "data/assets/hallway_bg.png",
+        hotspots = {
+            door_to_kitchen = {
+                //frame = true,
+                left = 21%,
+                top = 25%,
+                width = 120.0,
+                height = 240.0,
+                cursor = "exit_left",
+                tooltip = "Go to Kitchen",
+                on_click = "action:change_scene kitchen",
+            },
+            locked_drawer = {
+                //frame = true,
+                left = 55%,
+                top = 48.5%,
+                width = 145.0,
+                height = 102.0,
+                cursor = "grab",
+                tooltip = "Locked Drawer",
+                on_click = "script:interact_drawer",
+            }
+        }
+    }
+
+    kitchen = {
+        background = "data/assets/kitchen_bg.png",
+        hotspots = {
+            door_to_hallway = {
+                left = 75%,
+                top = 20%,
+                width = 120.0,
+                height = 240.0,
+                cursor = "exit_right",
+                tooltip = "Go back to Hallway",
+                on_click = "action:change_scene hallway",
+            },
+            brass_key = {
+                left = 40%,
+                top = 70%,
+                width = 60.0,
+                height = 40.0,
+                cursor = "grab",
+                tooltip = "Take key",
+                visible_if = "!flags.has_brass_key",
+                on_click = "action:pick_up_item brass_key",
+            }
+        }
+    }
+}

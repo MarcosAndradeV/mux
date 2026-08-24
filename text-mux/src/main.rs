@@ -11,7 +11,7 @@ fn main() {
     App::init(800, 600, "Mux Point-and-Click Engine", init_context)
         .on_update(update)
         .set_script_hook(script_hook)
-        .set_style_file("data/layout.gss")
+        .set_style_file("data/test.gss")
         .set_initial_scene("hallway")
         .set_fps(30)
         .run();
