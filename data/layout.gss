@@ -32,51 +32,53 @@ inventory_panel = {
     }
 }
 
-scene_hallway = {
-    background = "data/assets/hallway_bg.png",
-    hotspots = {
-        door_to_kitchen = {
-            left = 15%,
-            top = 20%,
-            width = 120.0,
-            height = 240.0,
-            cursor = "exit_left",
-            tooltip = "Go to Kitchen",
-            on_click = "action:change_scene scene_kitchen",
-        },
-        locked_drawer = {
-            left = 60%,
-            top = 50%,
-            width = 100.0,
-            height = 80.0,
-            cursor = "grab",
-            tooltip = "Locked Drawer",
-            on_click = "script:interact_drawer",
+scenes = {
+    hallway = {
+        background = "data/assets/hallway_bg.png",
+        hotspots = {
+            door_to_kitchen = {
+                left = 15%,
+                top = 20%,
+                width = 120.0,
+                height = 240.0,
+                cursor = "exit_left",
+                tooltip = "Go to Kitchen",
+                on_click = "action:change_scene kitchen",
+            },
+            locked_drawer = {
+                left = 60%,
+                top = 50%,
+                width = 100.0,
+                height = 80.0,
+                cursor = "grab",
+                tooltip = "Locked Drawer",
+                on_click = "script:interact_drawer",
+            }
         }
     }
-}
 
-scene_kitchen = {
-    background = "data/assets/kitchen_bg.png",
-    hotspots = {
-        door_to_hallway = {
-            left = 75%,
-            top = 20%,
-            width = 120.0,
-            height = 240.0,
-            cursor = "exit_right",
-            tooltip = "Go back to Hallway",
-            on_click = "action:change_scene scene_hallway",
-        },
-        brass_key = {
-            left = 40%,
-            top = 70%,
-            width = 60.0,
-            height = 40.0,
-            cursor = "grab",
-            tooltip = "Take key",
-            visible_if = "!flags.has_brass_key",
-            on_click = "action:pick_up_item brass_key",
+    kitchen = {
+        background = "data/assets/kitchen_bg.png",
+        hotspots = {
+            door_to_hallway = {
+                left = 75%,
+                top = 20%,
+                width = 120.0,
+                height = 240.0,
+                cursor = "exit_right",
+                tooltip = "Go back to Hallway",
+                on_click = "action:change_scene hallway",
+            },
+            brass_key = {
+                left = 40%,
+                top = 70%,
+                width = 60.0,
+                height = 40.0,
+                cursor = "grab",
+                tooltip = "Take key",
+                visible_if = "!flags.has_brass_key",
+                on_click = "action:pick_up_item brass_key",
+            }
         }
     }
 }

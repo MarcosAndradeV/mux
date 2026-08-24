@@ -108,6 +108,11 @@ pub struct SceneView {
     /// Current inventory.
     pub inventory: Vec<ItemView>,
 }
+impl SceneView {
+    pub fn get_hotspots_style<'a>(&self, base: &'a Gss) -> Option<&'a Object> {
+        base.get(&["scenes", &self.scene_id, "hotspots"])
+    }
+}
 
 impl PartialEq for SceneView {
     fn eq(&self, other: &Self) -> bool {
@@ -174,16 +179,24 @@ impl EngineController {
     pub fn current_view(&self, scenes: &Gss) -> SceneView {
         let background_texture = muxutils::get_string_field(
             scenes,
-            &[&self.current_scene, "background"],
+            &["scenes", &self.current_scene, "background"],
             "data/assets/fallback_bg.png",
         );
 
         let mut hotspots = Vec::new();
 
-        if let Some(hotspots_obj) = scenes.get::<Object>(&[&self.current_scene, "hotspots"]) {
+        if let Some(hotspots_obj) =
+            scenes.get::<Object>(&["scenes", &self.current_scene, "hotspots"])
+        {
             for hotspot_name in hotspots_obj.get_fields() {
                 // Check if this hotspot should be visible based on its conditions
-                let cond_path = [&self.current_scene, "hotspots", hotspot_name, "visible_if"];
+                let cond_path = [
+                    "scenes",
+                    &self.current_scene,
+                    "hotspots",
+                    hotspot_name,
+                    "visible_if",
+                ];
                 if let Some(cond) = scenes.get::<String>(&cond_path) {
                     if !self.evaluate_condition(cond) {
                         continue;
@@ -192,13 +205,25 @@ impl EngineController {
 
                 let cursor_str = muxutils::get_string_field(
                     scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "cursor"],
+                    &[
+                        "scenes",
+                        &self.current_scene,
+                        "hotspots",
+                        hotspot_name,
+                        "cursor",
+                    ],
                     "pointer",
                 );
 
                 let tooltip = muxutils::get_string_field(
                     scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "tooltip"],
+                    &[
+                        "scenes",
+                        &self.current_scene,
+                        "hotspots",
+                        hotspot_name,
+                        "tooltip",
+                    ],
                     hotspot_name,
                 );
 
@@ -243,7 +268,13 @@ impl EngineController {
     pub fn process_event(&mut self, scenes: &Gss, event: EngineEvent) {
         match event {
             EngineEvent::ClickHotspot { hotspot_id } => {
-                let path = [&self.current_scene, "hotspots", &hotspot_id, "on_click"];
+                let path = [
+                    "scenes",
+                    &self.current_scene,
+                    "hotspots",
+                    &hotspot_id,
+                    "on_click",
+                ];
                 if let Some(on_click) = scenes.get::<String>(&path) {
                     let on_click_val = on_click.clone();
                     self.execute_trigger(&on_click_val);
@@ -257,6 +288,7 @@ impl EngineController {
                 target_hotspot_id,
             } => {
                 let path = [
+                    "scenes",
                     &self.current_scene,
                     "hotspots",
                     &target_hotspot_id,

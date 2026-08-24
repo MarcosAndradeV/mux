@@ -527,7 +527,7 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
 #[derive(Debug)]
 pub struct HotspotElement {
     /// Identifier for the hotspot.
-    // pub id: String,
+    pub id: String,
     cached_rec: std::cell::Cell<Rectangle>,
 }
 
@@ -535,6 +535,7 @@ impl HotspotElement {
     /// Create a new hotspot element and caches it's rectangle
     pub fn new_from_style(style: &Style, name: &str) -> Self {
         let e = Self {
+            id: name.to_string(),
             cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
         };
         let position = e.get_position(style, name);
@@ -589,11 +590,24 @@ impl Element for HotspotElement {
         }
 
         // Debug border: draw frame if configured
-        if get_bool_field(style, name, "debug", false)
-            || get_bool_field(style, name, "frame", false)
+        if get_bool_field(style, name, "frame", false)
         {
             draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, YELLOW);
         }
+
+        // Draw hotspot label inside/above the bounds
+        let label = format!("[{}]", get_string_field(style, &[name, "tooltip"], ""));
+        let bounds = self.get_rec(style, &self.id);
+
+        let font_size = 12;
+        let text_w = measure_text(cstr!(&label), font_size);
+        draw_text(
+            cstr!(&label),
+            (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
+            (bounds.y + bounds.height / 2.0 - 6.0) as i32,
+            font_size,
+            if self.hover() { YELLOW } else { WHITE },
+        );
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {

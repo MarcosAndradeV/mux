@@ -12,7 +12,7 @@ fn main() {
         .on_update(update)
         .set_script_hook(script_hook)
         .set_style_file("data/layout.gss")
-        .set_initial_scene("scene_hallway")
+        .set_initial_scene("hallway")
         .set_fps(30)
         .run();
 }
@@ -44,7 +44,7 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
 
     if ctx.background_texture != view.background_texture {
         ctx.background_texture = view.background_texture.clone();
-        ctx.background_texture_element = TextureElement::load_from_file(view.background_texture);
+        ctx.background_texture_element = TextureElement::load_from_file(&view.background_texture);
     }
 
     let mouse_pos = get_mouse_position();
@@ -61,10 +61,10 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     clear_background(get_color(0x181818FF));
 
     // Draw active hotspots using HotspotElement::place
-    if let Some(style) = style.get::<Style>(&[&view.scene_id, "hotspots"]) {
+    if let Some(hotspots_style) = view.get_hotspots_style(style) {
         for hotspot in &view.hotspots {
             // Find if mouse is hovering over any hotspot using HotspotElement boundary check
-            let el = HotspotElement::new_from_style(style, &hotspot.id);
+            let el = HotspotElement::new_from_style(hotspots_style, &hotspot.id);
             if el.hover() {
                 hovered_hotspot = Some(hotspot);
             }
@@ -78,39 +78,22 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
                 }
             }
 
-            el.place(style, &hotspot.id);
-
-            // Draw hotspot label inside/above the bounds
-            let label = format!("[{}]", hotspot.tooltip);
-            let bounds = el.get_rec(style, &hotspot.id);
-
-            let font_size = 12;
-            let text_w = measure_text(cstr!(&label), font_size);
-            draw_text(
-                cstr!(&label),
-                (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
-                (bounds.y + bounds.height / 2.0 - 6.0) as i32,
-                font_size,
-                if el.hover() { YELLOW } else { WHITE },
-            );
+            el.place(hotspots_style, &hotspot.id);
         }
     }
 
     // Render background (fallback colors based on active scene)
-    if view.scene_id == "scene_hallway" {
+    if view.scene_id == "hallway" {
         clear_background(get_color(0x28201CFF)); // Warm brown/grey for hallway
         if let Some(texture) = &ctx.background_texture_element {
-            texture.place(style, "scene_hallway");
+            texture.place(style, "hallway");
         }
-    } else if view.scene_id == "scene_kitchen" {
+    } else if view.scene_id == "kitchen" {
         clear_background(get_color(0x1C2830FF)); // Slate blue for kitchen
     }
 
     // Draw scene header text
-    let header_text = format!(
-        "Scene: {}",
-        view.scene_id.replace("scene_", "").to_uppercase()
-    );
+    let header_text = format!("Scene: {}", view.scene_id.to_uppercase());
     draw_text(cstr!(&header_text), 20, 20, 24, LIGHTGRAY);
 
     // Draw inventory panel using InventoryElement::place!
