@@ -70,12 +70,10 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
             }
 
             // Trigger action on left click
-            if let Some(hotspot) = hovered_hotspot {
-                if el.click() {
-                    events.push(EngineEvent::ClickHotspot {
-                        hotspot_id: hotspot.id.clone(),
-                    });
-                }
+            if el.click() {
+                events.push(EngineEvent::ClickHotspot {
+                    hotspot_id: hotspot.id.clone(),
+                });
             }
 
             el.place(hotspots_style, &hotspot.id);

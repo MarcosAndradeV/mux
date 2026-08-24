@@ -597,7 +597,7 @@ impl Element for HotspotElement {
 
         // Draw hotspot label inside/above the bounds
         let label = format!("[{}]", get_string_field(style, &[name, "tooltip"], ""));
-        let bounds = self.get_rec(style, &self.id);
+        let bounds = self.get_rec(style, name);
 
         let font_size = 12;
         let text_w = measure_text(cstr!(&label), font_size);

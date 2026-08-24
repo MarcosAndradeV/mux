@@ -408,7 +408,7 @@ impl EngineController {
                 self.active_dialogue = None;
             }
             _ => {
-                println!("Unknown action command: {}", command);
+                muxutils::raylib::log_warn!("MUXENGINE: Unknown action command: \"{}\"", command);
             }
         }
     }
