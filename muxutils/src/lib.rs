@@ -95,3 +95,11 @@ pub fn get_relative_field(obj: &gss::Object, path: &[&str], scale: f32, default:
         default
     }
 }
+
+pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> String {
+    if let Some(val) = gss.get::<String>(path) {
+        val.clone()
+    } else {
+        default.to_string()
+    }
+}

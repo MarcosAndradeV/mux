@@ -544,19 +544,48 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
 }
 
 /// A point-and-click hotspot interaction zone.
+#[derive(Debug)]
 pub struct HotspotElement {
     /// Identifier for the hotspot.
-    pub id: String,
-    cached_bounds: std::cell::Cell<Rectangle>,
+    // pub id: String,
+    cached_rec: std::cell::Cell<Rectangle>,
 }
 
 impl HotspotElement {
-    /// Create a new hotspot element.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            cached_bounds: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
-        }
+    /// Create a new hotspot element and caches it's rectangle
+    pub fn new_from_style(style: &Style, name: &str) -> Self {
+        let e = Self {
+            cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+        };
+        let position = e.get_position(style, name);
+        let size = e.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+        e.cached_rec.set(rec);
+        e
+    }
+
+    /// Check if element is being hovered
+    pub fn hover(&self) -> bool {
+        check_collision_circle_rec(
+            get_mouse_position(),
+            MOUSE_CLICK_RADIUS,
+            self.cached_rec.get(),
+        )
+    }
+
+    /// Check if element is clicked
+    pub fn click(&self) -> bool {
+        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+            && check_collision_circle_rec(
+                get_mouse_position(),
+                MOUSE_CLICK_RADIUS,
+                self.cached_rec.get(),
+            )
     }
 }
 
@@ -569,7 +598,7 @@ impl Element for HotspotElement {
             width: size.x,
             height: size.y,
         };
-        self.cached_bounds.set(rec);
+        self.cached_rec.set(rec);
 
         // Hover effect: draw semi-transparent background
         if check_collision_circle_rec(get_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
@@ -580,7 +609,9 @@ impl Element for HotspotElement {
         }
 
         // Debug border: draw frame if configured
-        if get_bool_field(style, name, "debug", false) || get_bool_field(style, name, "frame", false) {
+        if get_bool_field(style, name, "debug", false)
+            || get_bool_field(style, name, "frame", false)
+        {
             draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, YELLOW);
         }
     }
@@ -593,10 +624,7 @@ impl Element for HotspotElement {
     }
 
     fn event(&self) -> Event {
-        let rec = self.cached_bounds.get();
-        if is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-            && check_collision_circle_rec(get_mouse_position(), MOUSE_CLICK_RADIUS, rec)
-        {
+        if self.click() {
             Event::ButtonClicked
         } else {
             Event::None
@@ -669,12 +697,21 @@ impl Element for DialogueElement {
         let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
         let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
         let prompt_text = "(Click or Press Space to continue)";
-        let prompt_w = measure_text_ex(get_font_default(), cstr!(prompt_text), prompt_font_size, 2.0).x;
+        let prompt_w = measure_text_ex(
+            get_font_default(),
+            cstr!(prompt_text),
+            prompt_font_size,
+            2.0,
+        )
+        .x;
 
         draw_text_ex(
             get_font_default(),
             cstr!(prompt_text),
-            Vector2::new(position.x + size.x - prompt_w - 20.0, position.y + size.y - prompt_font_size - 15.0),
+            Vector2::new(
+                position.x + size.x - prompt_w - 20.0,
+                position.y + size.y - prompt_font_size - 15.0,
+            ),
             prompt_font_size,
             2.0,
             prompt_color,
@@ -743,7 +780,8 @@ impl Element for InventoryElement {
                     item_color,
                 );
 
-                let item_w = measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
+                let item_w =
+                    measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
                 current_x += item_w + gap;
             }
         }

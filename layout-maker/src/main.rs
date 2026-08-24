@@ -1,6 +1,6 @@
+use muxapp::App;
 use muxapp::muxengine::*;
 use muxapp::muxui::*;
-use muxapp::App;
 
 struct Context;
 
@@ -34,13 +34,10 @@ fn load(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
 }
 
 fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
-    let screen_w = get_screen_width() as f32;
-    let screen_h = get_screen_height() as f32;
+    let mut events = Vec::new();
 
-    // 1. Fetch current scene snapshot from the engine
-    let view = engine.current_view(style, screen_w, screen_h);
+    let view = engine.current_view(style);
 
-    // 2. Process Input and emit Engine Events
     let mouse_pos = get_mouse_position();
     let mut hovered_hotspot = None;
 
@@ -49,34 +46,47 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         if is_mouse_button_pressed(MOUSE_BUTTON_LEFT) || is_key_pressed(KEY_SPACE) {
             engine.process_event(style, EngineEvent::SkipDialogue);
         }
-    } else {
-        // Find if mouse is hovering over any hotspot using HotspotElement boundary check
-        if let Some(hotspots_style) = style.get::<Style>(&[&view.scene_id, "hotspots"]) {
-            for hotspot in &view.hotspots {
-                let el = HotspotElement::new(&hotspot.id);
-                let bounds = el.get_rec(hotspots_style, &hotspot.id);
-                if check_collision_point_rec(mouse_pos, bounds) {
-                    hovered_hotspot = Some((hotspot, bounds));
-                    break;
-                }
-            }
-        }
-
-        // Trigger action on left click
-        if let Some((hotspot, _)) = hovered_hotspot {
-            if is_mouse_button_pressed(MOUSE_BUTTON_LEFT) {
-                engine.process_event(
-                    style,
-                    EngineEvent::ClickHotspot {
-                        hotspot_id: hotspot.id.clone(),
-                    },
-                );
-            }
-        }
     }
 
-    // 3. Render the Scene
     begin_drawing();
+
+    // Draw active hotspots using HotspotElement::place
+    if let Some(style) = style.get::<Style>(&[&view.scene_id, "hotspots"]) {
+        for hotspot in &view.hotspots {
+            // Find if mouse is hovering over any hotspot using HotspotElement boundary check
+            let el = HotspotElement::new_from_style(style, &hotspot.id);
+            if el.hover() {
+                hovered_hotspot = Some(hotspot);
+            }
+
+            // Trigger action on left click
+            if let Some(hotspot) = hovered_hotspot {
+                if el.click() {
+                    events.push(
+                        EngineEvent::ClickHotspot {
+                            hotspot_id: hotspot.id.clone(),
+                        },
+                    );
+                }
+            }
+
+            el.place(style, &hotspot.id);
+
+            // Draw hotspot label inside/above the bounds
+            let label = format!("[{}]", hotspot.tooltip);
+            let bounds = el.get_rec(style, &hotspot.id);
+
+            let font_size = 12;
+            let text_w = measure_text(cstr!(&label), font_size);
+            draw_text(
+                cstr!(&label),
+                (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
+                (bounds.y + bounds.height / 2.0 - 6.0) as i32,
+                font_size,
+                if el.hover() { YELLOW } else { WHITE },
+            );
+        }
+    }
 
     // Render background (fallback colors based on active scene)
     if view.scene_id == "scene_hallway" {
@@ -93,29 +103,6 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         view.scene_id.replace("scene_", "").to_uppercase()
     );
     draw_text(cstr!(&header_text), 20, 20, 24, LIGHTGRAY);
-
-    // Draw active hotspots using HotspotElement::place!
-    if let Some(hotspots_style) = style.get::<Style>(&[&view.scene_id, "hotspots"]) {
-        for hotspot in &view.hotspots {
-            let el = HotspotElement::new(&hotspot.id);
-            el.place(hotspots_style, &hotspot.id);
-
-            // Draw hotspot label inside/above the bounds
-            let label = format!("[{}]", hotspot.tooltip);
-            let bounds = el.get_rec(hotspots_style, &hotspot.id);
-            let is_hovered = hovered_hotspot.map_or(false, |(h, _)| h.id == hotspot.id);
-
-            let font_size = 12;
-            let text_w = measure_text(cstr!(&label), font_size);
-            draw_text(
-                cstr!(&label),
-                (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
-                (bounds.y + bounds.height / 2.0 - 6.0) as i32,
-                font_size,
-                if is_hovered { YELLOW } else { WHITE },
-            );
-        }
-    }
 
     // Draw inventory panel using InventoryElement::place!
     let item_names: Vec<String> = view
@@ -134,8 +121,8 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
 
     // Render Cursor Tooltip if hovering over hotspot
     if view.dialogue.is_none() {
-        if let Some((hotspot, _)) = hovered_hotspot {
-            let action_prefix = match hotspot.hover_cursor {
+        if let Some(hotspot_view) = hovered_hotspot {
+            let action_prefix = match hotspot_view.hover_cursor {
                 CursorType::Look => "Look at",
                 CursorType::Grab => "Take",
                 CursorType::Talk => "Talk to",
@@ -143,7 +130,7 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
                 CursorType::Pointer => "Interact with",
             };
 
-            let tooltip_str = format!("{} {}", action_prefix, hotspot.tooltip);
+            let tooltip_str = format!("{} {}", action_prefix, hotspot_view.tooltip);
             let font_sz = 14;
             let width = measure_text(cstr!(&tooltip_str), font_sz);
 
@@ -164,12 +151,9 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         }
     }
 
-    end_drawing();
-}
+    for e in events {
+        engine.process_event(style, e);
+    }
 
-fn check_collision_point_rec(point: Vector2, rec: Rectangle) -> bool {
-    point.x >= rec.x
-        && point.x <= rec.x + rec.width
-        && point.y >= rec.y
-        && point.y <= rec.y + rec.height
+    end_drawing();
 }

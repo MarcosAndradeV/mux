@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use muxutils::gss::{Gss, Object};
-use muxutils::raylib::Rectangle;
 
 /// The cursor types for hotspot interactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,8 +62,6 @@ pub struct ItemView {
 pub struct HotspotView {
     /// Unique identifier for this hotspot.
     pub id: String,
-    /// Screen boundaries.
-    pub bounds: Rectangle,
     /// Interaction cursor.
     pub hover_cursor: CursorType,
     /// Hover description text.
@@ -76,10 +73,6 @@ impl PartialEq for HotspotView {
         self.id == other.id
             && self.hover_cursor == other.hover_cursor
             && self.tooltip == other.tooltip
-            && self.bounds.x == other.bounds.x
-            && self.bounds.y == other.bounds.y
-            && self.bounds.width == other.bounds.width
-            && self.bounds.height == other.bounds.height
     }
 }
 
@@ -175,8 +168,8 @@ impl EngineController {
     }
 
     /// Query GSS and calculate the layout values to output a SceneView snapshot.
-    pub fn current_view(&self, scenes: &Gss, screen_w: f32, screen_h: f32) -> SceneView {
-        let background_texture = get_string_field(
+    pub fn current_view(&self, scenes: &Gss) -> SceneView {
+        let background_texture = muxutils::get_string_field(
             scenes,
             &[&self.current_scene, "background"],
             "data/assets/fallback_bg.png",
@@ -196,37 +189,13 @@ impl EngineController {
                     }
                 }
 
-                // Resolve boundaries
-                let x = get_relative_field(
-                    scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "left"],
-                    screen_w,
-                    0.0,
-                );
-                let y = get_relative_field(
-                    scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "top"],
-                    screen_h,
-                    0.0,
-                );
-                let w = get_f32_field(
-                    scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "width"],
-                    0.0,
-                );
-                let h = get_f32_field(
-                    scenes,
-                    &[&self.current_scene, "hotspots", hotspot_name, "height"],
-                    0.0,
-                );
-
-                let cursor_str = get_string_field(
+                let cursor_str = muxutils::get_string_field(
                     scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "cursor"],
                     "pointer",
                 );
 
-                let tooltip = get_string_field(
+                let tooltip = muxutils::get_string_field(
                     scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "tooltip"],
                     hotspot_name,
@@ -234,12 +203,6 @@ impl EngineController {
 
                 hotspots.push(HotspotView {
                     id: hotspot_name.clone(),
-                    bounds: Rectangle {
-                        x,
-                        y,
-                        width: w,
-                        height: h,
-                    },
                     hover_cursor: CursorType::from_str(&cursor_str),
                     tooltip,
                 });
@@ -381,36 +344,6 @@ impl EngineController {
                 println!("Unknown action command: {}", command);
             }
         }
-    }
-}
-
-// Helper methods for GSS reading
-
-pub fn get_f32_field(gss: &Gss, path: &[&str], default: f32) -> f32 {
-    if let Some(&val) = gss.get::<f32>(path) {
-        val
-    } else if let Some(&val) = gss.get::<u32>(path) {
-        val as f32
-    } else {
-        default
-    }
-}
-
-pub fn get_relative_field(gss: &Gss, path: &[&str], scale: f32, default: f32) -> f32 {
-    if let Some(&val) = gss.get::<f32>(path) {
-        val * scale
-    } else if let Some(&val) = gss.get::<u32>(path) {
-        val as f32
-    } else {
-        default
-    }
-}
-
-pub fn get_string_field(gss: &Gss, path: &[&str], default: &str) -> String {
-    if let Some(val) = gss.get::<String>(path) {
-        val.clone()
-    } else {
-        default.to_string()
     }
 }
 
