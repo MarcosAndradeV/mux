@@ -28,7 +28,7 @@ fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
     match script_name {
         "interact_drawer" => {
             if *state.flags.get("has_brass_key").unwrap_or(&false) {
-                Some("action:show_dialogue Drawer 'You unlocked the drawer using the brass key! Inside you found a shiny gemstone! You Win!'".to_string())
+                Some("action:show_dialogue Drawer 'You unlocked the drawer using the brass key!\nInside you found a shiny gemstone! You Win!'".to_string())
             } else {
                 Some("action:show_dialogue Drawer 'The drawer is locked tightly. It seems to require a key.'".to_string())
             }
