@@ -7,7 +7,7 @@ struct Context;
 fn main() {
     App::init(800, 600, "Mux Point-and-Click Engine", init_context)
         .on_update(update)
-        .on_reload(reload)
+        .on_load(load)
         .set_style_file("data/layout.gss")
         .set_initial_scene("scene_hallway")
         .set_fps(30)
@@ -18,7 +18,7 @@ fn init_context() -> Context {
     Context
 }
 
-fn reload(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
+fn load(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
     engine.set_script_hook(|state, script_name| {
         match script_name {
             "interact_drawer" => {

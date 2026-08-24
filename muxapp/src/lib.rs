@@ -11,7 +11,7 @@ use muxui::*;
 
 struct Manager<Context> {
     update: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
-    reload: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
+    load: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -30,7 +30,7 @@ pub struct App<Context> {
     height: i32,
     title: String,
     update: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
-    reload: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
+    load: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
     style_file: Option<PathBuf>,
     initial_scene: Option<String>,
     fps: i32,
@@ -58,7 +58,7 @@ impl<Context> App<Context> {
             height,
             title: title.into(),
             update: None,
-            reload: None,
+            load: None,
             style_file: None,
             initial_scene: None,
             fps: muxutils::DEFAULT_FPS,
@@ -98,11 +98,11 @@ impl<Context> App<Context> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_reload<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
+    pub fn on_load<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
         mut self,
         f: F,
     ) -> Self {
-        self.reload = Some(Box::new(f));
+        self.load = Some(Box::new(f));
         self
     }
 
@@ -135,7 +135,7 @@ impl<Context> App<Context> {
             height,
             title,
             update,
-            reload,
+            load,
             style_file,
             fps,
             audio_device,
@@ -160,7 +160,7 @@ impl<Context> App<Context> {
                 begin_drawing();
                 end_drawing();
             })),
-            reload: reload.unwrap_or(Box::new(|_, _, _| {})),
+            load: load.unwrap_or(Box::new(|_, _, _| {})),
             style_file,
             fps,
             audio_device,
@@ -185,7 +185,7 @@ impl<Context> App<Context> {
         log_info!("MUX: Starting App run loop");
         let Manager {
             update,
-            reload,
+            load,
             style_file,
             initial_scene,
             fps,
@@ -198,7 +198,7 @@ impl<Context> App<Context> {
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
 
         let mut engine = EngineController::new(initial_scene.unwrap_or_default());
-        reload(&mut context, &mut engine, &style);
+        load(&mut context, &mut engine, &style);
 
         // 1. Declare the watcher OUTSIDE the block so it lives longer
         let mut _watcher = None;
@@ -251,7 +251,7 @@ impl<Context> App<Context> {
             if should_reload {
                 log_info!("MUX: Style file modified. Reloading style...");
                 style = load_style_fallback(style_file.as_ref(), style);
-                reload(&mut context, &mut engine, &style);
+                load(&mut context, &mut engine, &style);
             }
 
             update(&mut context, &mut engine, &style);
