@@ -36,15 +36,45 @@ pub use muxui;
 
 use muxui::*;
 
-struct Manager<Context> {
-    update: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
-    load: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
+/// The application context wrapping both the user-defined state and the point-and-click engine.
+///
+/// It acts as the primary interface for callbacks to inspect or mutate both
+/// the custom application state and the active game engine controller.
+pub struct Context<State> {
+    state: State,
+    engine: EngineController,
+}
+
+impl<State> Context<State> {
+    /// Returns a shared reference to the user-defined application state.
+    pub fn data(&self) -> &State {
+        &self.state
+    }
+
+    /// Returns a shared reference to the underlying engine controller.
+    pub fn engine(&self) -> &EngineController {
+        &self.engine
+    }
+
+    /// Returns a mutable reference to the underlying engine controller.
+    pub fn engine_mut(&mut self) -> &mut EngineController {
+        &mut self.engine
+    }
+
+    /// Returns a mutable reference to the user-defined application state.
+    pub fn state_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+}
+
+struct Manager<AppState> {
+    update: Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>,
+    load: Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>,
     script_hook: Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
-    context: Context,
-    initial_scene: Option<String>,
+    context: Context<AppState>,
     virtual_width: i32,
     virtual_height: i32,
 }
@@ -54,24 +84,24 @@ struct Manager<Context> {
 ///
 /// # Type Parameters
 ///
-/// * `Context` - The application-defined state/context type passed to callbacks.
-pub struct App<Context> {
+/// * `AppState` - The application-defined state type passed to callbacks.
+pub struct App<AppState> {
     width: i32,
     height: i32,
     virtual_width: i32,
     virtual_height: i32,
     title: String,
-    update: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
-    load: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
+    update: Option<Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>>,
+    load: Option<Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>>,
     script_hook: Option<Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>>,
     style_file: Option<PathBuf>,
     initial_scene: Option<String>,
     fps: i32,
     audio_device: bool,
-    init_context: Box<dyn FnOnce() -> Context + 'static>,
+    init_state: Box<dyn FnOnce() -> AppState + 'static>,
 }
 
-impl<Context> App<Context> {
+impl<AppState> App<AppState> {
     /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
     ///
     /// # Arguments
@@ -79,12 +109,12 @@ impl<Context> App<Context> {
     /// * `width` - The width of the application window in pixels.
     /// * `height` - The height of the application window in pixels.
     /// * `title` - The title of the application window.
-    /// * `init_context` - A closure that generates the initial application-defined state/context.
-    pub fn init<F: FnOnce() -> Context + 'static>(
+    /// * `init_state` - A closure that generates the initial application-defined state.
+    pub fn init<F: FnOnce() -> AppState + 'static>(
         width: i32,
         height: i32,
         title: impl Into<String>,
-        init_context: F,
+        init_state: F,
     ) -> Self {
         Self {
             width,
@@ -99,7 +129,7 @@ impl<Context> App<Context> {
             initial_scene: None,
             fps: muxutils::DEFAULT_FPS,
             audio_device: false,
-            init_context: Box::new(init_context),
+            init_state: Box::new(init_state),
         }
     }
 
@@ -131,10 +161,7 @@ impl<Context> App<Context> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_update<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
-        mut self,
-        f: F,
-    ) -> Self {
+    pub fn on_update<F: Fn(&mut Context<AppState>, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
         self
     }
@@ -146,10 +173,7 @@ impl<Context> App<Context> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_load<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
-        mut self,
-        f: F,
-    ) -> Self {
+    pub fn on_load<F: Fn(&mut Context<AppState>, &Style) + 'static>(mut self, f: F) -> Self {
         self.load = Some(Box::new(f));
         self
     }
@@ -186,7 +210,7 @@ impl<Context> App<Context> {
         self
     }
 
-    fn build(self) -> Manager<Context> {
+    fn build(self) -> Manager<AppState> {
         let Self {
             width,
             height,
@@ -198,7 +222,7 @@ impl<Context> App<Context> {
             style_file,
             fps,
             audio_device,
-            init_context,
+            init_state,
             initial_scene,
             script_hook,
         } = self;
@@ -218,14 +242,16 @@ impl<Context> App<Context> {
         }
 
         Manager {
-            update: update.unwrap_or(Box::new(|_, _, _| {})),
-            load: load.unwrap_or(Box::new(|_, _, _| {})),
+            update: update.unwrap_or(Box::new(|_, _| {})),
+            load: load.unwrap_or(Box::new(|_, _| {})),
             script_hook: script_hook.unwrap_or(Box::new(|_, _| None)),
             style_file,
             fps,
             audio_device,
-            context: init_context(),
-            initial_scene,
+            context: Context {
+                state: init_state(),
+                engine: EngineController::new(initial_scene.unwrap_or_default()),
+            },
             virtual_width,
             virtual_height,
         }
@@ -238,7 +264,7 @@ impl<Context> App<Context> {
     }
 }
 
-impl<Context> App<Context> {
+impl<AppContext> App<AppContext> {
     /// Runs the main application loop.
     ///
     /// This method builds the application manager, initializes the Raylib window,
@@ -250,7 +276,6 @@ impl<Context> App<Context> {
             update,
             load,
             style_file,
-            initial_scene,
             fps,
             audio_device,
             mut context,
@@ -265,9 +290,8 @@ impl<Context> App<Context> {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
 
-        let mut engine = EngineController::new(initial_scene.unwrap_or_default());
-        engine.set_script_hook(script_hook);
-        load(&mut context, &mut engine, &style);
+        context.engine.set_script_hook(script_hook);
+        load(&mut context, &style);
 
         // 1. Declare the watcher OUTSIDE the block so it lives longer
         let mut _watcher = None;
@@ -329,12 +353,12 @@ impl<Context> App<Context> {
             if should_reload {
                 log_info!("MUX: Style file modified. Reloading style...");
                 style = load_style_fallback(style_file.as_ref(), style);
-                load(&mut context, &mut engine, &style);
+                load(&mut context, &style);
             }
 
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
-            update(&mut context, &mut engine, &style);
+            update(&mut context, &style);
             end_texture_mode();
 
             begin_drawing();

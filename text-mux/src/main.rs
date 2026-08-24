@@ -1,14 +1,15 @@
 use muxapp::App;
+use muxapp::Context;
 use muxapp::muxengine::*;
 use muxapp::muxui::*;
 
-struct Context {
+struct AppState {
     background_texture: String,
     background_texture_element: Option<TextureElement>,
 }
 
 fn main() {
-    App::init(800, 600, "Mux Point-and-Click Engine", init_context)
+    App::init(800, 600, "Mux Point-and-Click Engine", init_data)
         .on_update(update)
         .set_script_hook(script_hook)
         .set_style_file("data/test.gss")
@@ -17,8 +18,8 @@ fn main() {
         .run();
 }
 
-fn init_context() -> Context {
-    Context {
+fn init_data() -> AppState {
+    AppState {
         background_texture: "".to_string(),
         background_texture_element: None,
     }
@@ -37,12 +38,14 @@ fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
     }
 }
 
-fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
-    let view = engine.current_view(style);
+fn update(ctx: &mut Context<AppState>, style: &Style) {
+    let view = ctx.engine().current_view(style);
 
-    if ctx.background_texture != view.background_texture {
-        ctx.background_texture = view.background_texture.clone();
-        ctx.background_texture_element = TextureElement::load_from_file(&view.background_texture);
+    let state = ctx.state_mut();
+    if state.background_texture != view.background_texture {
+        state.background_texture = view.background_texture.clone();
+        state.background_texture_element =
+            TextureElement::load_from_file(&view.background_texture);
     }
 
     let mouse_pos = get_virtual_mouse_position();
@@ -53,7 +56,8 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     if view.dialogue.is_some() {
         // Dialogue blocks scene interaction. Any click or space key skips/closes the dialogue.
         if is_mouse_button_pressed(MOUSE_BUTTON_LEFT) || is_key_pressed(KEY_SPACE) {
-            engine.process_event(style, EngineEvent::SkipDialogue);
+            ctx.engine_mut()
+                .process_event(style, EngineEvent::SkipDialogue);
         }
     } else {
         if let Some(hotspots_style) = hotspots_style {
@@ -66,7 +70,7 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
 
                 // Trigger action on left click
                 if el.click() {
-                    engine.process_event(
+                    ctx.engine_mut().process_event(
                         style,
                         EngineEvent::ClickHotspot {
                             hotspot_id: hotspot.id.clone(),
@@ -78,12 +82,10 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
         }
     }
 
-    clear_background(get_color(0x181818FF));
-
     // Render background (fallback colors based on active scene)
     if view.scene_id == "hallway" {
         clear_background(get_color(0x28201CFF)); // Warm brown/grey for hallway
-        if let Some(texture) = &ctx.background_texture_element {
+        if let Some(texture) = &ctx.data().background_texture_element {
             texture.place(style, "hallway");
         }
     } else if view.scene_id == "kitchen" {
