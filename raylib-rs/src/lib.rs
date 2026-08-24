@@ -193,6 +193,9 @@ pub fn measure_text_ex(font: Font, text: CString, fontSize: f32, spacing: f32) -
     unsafe { MeasureTextEx(font, text.as_ptr(), fontSize, spacing) }
 }
 
+pub fn load_texture_from_image(image: Image) -> Texture {
+    unsafe { LoadTextureFromImage(image) }
+}
 pub fn load_texture(path: CString) -> Texture {
     unsafe { LoadTexture(path.as_ptr()) }
 }

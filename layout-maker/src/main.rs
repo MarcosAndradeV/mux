@@ -2,7 +2,10 @@ use muxapp::App;
 use muxapp::muxengine::*;
 use muxapp::muxui::*;
 
-struct Context;
+struct Context {
+    background_texture: String,
+    background_texture_element: Option<TextureElement>,
+}
 
 fn main() {
     App::init(800, 600, "Mux Point-and-Click Engine", init_context)
@@ -15,7 +18,10 @@ fn main() {
 }
 
 fn init_context() -> Context {
-    Context
+    Context {
+        background_texture: "".to_string(),
+        background_texture_element: None
+    }
 }
 
 fn load(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
@@ -33,10 +39,15 @@ fn load(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
     });
 }
 
-fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
+fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     let mut events = Vec::new();
 
     let view = engine.current_view(style);
+
+    if ctx.background_texture != view.background_texture {
+        ctx.background_texture = view.background_texture.clone();
+        ctx.background_texture_element = TextureElement::load_from_file(view.background_texture);
+    }
 
     let mouse_pos = get_mouse_position();
     let mut hovered_hotspot = None;
@@ -49,6 +60,7 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     }
 
     begin_drawing();
+    clear_background(get_color(0x181818FF));
 
     // Draw active hotspots using HotspotElement::place
     if let Some(style) = style.get::<Style>(&[&view.scene_id, "hotspots"]) {
@@ -91,10 +103,11 @@ fn update(_ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     // Render background (fallback colors based on active scene)
     if view.scene_id == "scene_hallway" {
         clear_background(get_color(0x28201CFF)); // Warm brown/grey for hallway
+        if let Some(texture) = &ctx.background_texture_element {
+            texture.place(style, "scene_hallway");
+        }
     } else if view.scene_id == "scene_kitchen" {
         clear_background(get_color(0x1C2830FF)); // Slate blue for kitchen
-    } else {
-        clear_background(get_color(0x181818FF)); // Default dark background
     }
 
     // Draw scene header text
