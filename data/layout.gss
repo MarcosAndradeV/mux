@@ -32,6 +32,12 @@ inventory_panel = {
     }
 }
 
+hallway = {
+    top = 10%
+    left = 10%
+    scale = 300%
+}
+
 scenes = {
     hallway = {
         background = "data/assets/hallway_bg.png",

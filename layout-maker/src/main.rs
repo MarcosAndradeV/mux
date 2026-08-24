@@ -38,8 +38,6 @@ fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
 }
 
 fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
-    let mut events = Vec::new();
-
     let view = engine.current_view(style);
 
     if ctx.background_texture != view.background_texture {
@@ -49,11 +47,34 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
 
     let mouse_pos = get_mouse_position();
     let mut hovered_hotspot = None;
+    let mut drawable_hotspot = Vec::new();
+    let hotspots_style = view.get_hotspots_style(style);
 
     if view.dialogue.is_some() {
         // Dialogue blocks scene interaction. Any click or space key skips/closes the dialogue.
         if is_mouse_button_pressed(MOUSE_BUTTON_LEFT) || is_key_pressed(KEY_SPACE) {
             engine.process_event(style, EngineEvent::SkipDialogue);
+        }
+    } else {
+        if let Some(hotspots_style) = hotspots_style {
+            for hotspot in &view.hotspots {
+                // Find if mouse is hovering over any hotspot using HotspotElement boundary check
+                let el = HotspotElement::new_from_style(hotspots_style, &hotspot.id);
+                if el.hover() {
+                    hovered_hotspot = Some(hotspot);
+                }
+
+                // Trigger action on left click
+                if el.click() {
+                    engine.process_event(
+                        style,
+                        EngineEvent::ClickHotspot {
+                            hotspot_id: hotspot.id.clone(),
+                        },
+                    );
+                }
+                drawable_hotspot.push(el);
+            }
         }
     }
 
@@ -61,22 +82,9 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
     clear_background(get_color(0x181818FF));
 
     // Draw active hotspots using HotspotElement::place
-    if let Some(hotspots_style) = view.get_hotspots_style(style) {
-        for hotspot in &view.hotspots {
-            // Find if mouse is hovering over any hotspot using HotspotElement boundary check
-            let el = HotspotElement::new_from_style(hotspots_style, &hotspot.id);
-            if el.hover() {
-                hovered_hotspot = Some(hotspot);
-            }
-
-            // Trigger action on left click
-            if el.click() {
-                events.push(EngineEvent::ClickHotspot {
-                    hotspot_id: hotspot.id.clone(),
-                });
-            }
-
-            el.place(hotspots_style, &hotspot.id);
+    if let Some(hotspots_style) = hotspots_style {
+        for el in drawable_hotspot {
+            el.place(hotspots_style, &el.id);
         }
     }
 
@@ -139,10 +147,6 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
             draw_rectangle_lines_ex(tooltip_bounds, 1.0, YELLOW);
             draw_text(cstr!(&tooltip_str), box_x + 8, box_y + 5, font_sz, YELLOW);
         }
-    }
-
-    for e in events {
-        engine.process_event(style, e);
     }
 
     end_drawing();
