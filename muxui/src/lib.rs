@@ -184,75 +184,115 @@ impl Element for TextElement {
     }
 }
 
-/// A graphical element that wraps a Raylib [`Texture2D`] for rendering texture graphics.
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static TEXTURE_CACHE: RefCell<HashMap<String, Texture2D>> = RefCell::new(HashMap::new());
+}
+
+/// Retrieve a texture from the thread-local cache, loading it from disk if not already cached.
+///
+/// This is safe and performant for single-threaded rendering in Raylib.
+pub fn get_cached_texture(path: &str) -> Texture2D {
+    if path.is_empty() {
+        return Texture2D::default();
+    }
+    TEXTURE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(&texture) = cache.get(path) {
+            texture
+        } else {
+            let path_c = cstr!(path);
+            let texture = load_texture(path_c);
+            if is_texture_valid(texture) {
+                log_info!("MUXUI: Automatically cached texture: \"{}\"", path);
+            } else {
+                log_warn!("MUXUI: Failed to load texture: \"{}\"", path);
+            }
+            cache.insert(path.to_string(), texture);
+            texture
+        }
+    })
+}
+
+/// Clear all cached textures from GPU memory.
+pub fn clear_texture_cache() {
+    TEXTURE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        log_info!("MUXUI: Clearing texture cache ({} textures)...", cache.len());
+        for (_, texture) in cache.drain() {
+            unsafe {
+                if IsWindowReady() && is_texture_valid(texture) {
+                    unload_texture(texture);
+                }
+            }
+        }
+    });
+}
+
+/// A graphical element that wraps a texture loaded from a path.
+///
+/// Textures are loaded and cached dynamically at runtime using the thread-local
+/// texture cache, removing manual memory/lifecycle management from the developer.
 ///
 /// # GSS Properties
 ///
 /// - `scale` - The scaling factor applied to the texture dimensions (defaults to `1.0`).
 /// - `rotation` - The rotation angle in degrees (defaults to `0.0`).
 /// - `color` - The tint color applied to the texture when drawn (defaults to `WHITE`).
-pub struct TextureElement(Texture2D);
-
-impl std::ops::Deref for TextureElement {
-    type Target = Texture2D;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<Texture> for TextureElement {
-    fn from(value: Texture) -> Self {
-        Self(value)
-    }
+pub struct TextureElement {
+    /// Filepath or asset identifier of the texture.
+    pub path: String,
 }
 
 impl TextureElement {
-    /// Loads a texture from the given filesystem path.
-    ///
-    /// Returns `Some(TextureElement)` if the texture was successfully loaded and is valid,
-    /// or `None` if the texture loading failed.
+    /// Creates a new `TextureElement` wrapping the given path.
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into() }
+    }
+
+    /// Loads a texture from the given filesystem path (compatibility wrapper).
     pub fn load_from_file(path: impl AsRef<str>) -> Option<Self> {
         let path_str = path.as_ref();
-        let texture = load_texture(cstr!(path_str));
-        if is_texture_valid(texture) {
-            log_info!("MUXUI: Successfully loaded texture from \"{}\"", path_str);
-            Some(Self(texture))
-        } else {
-            log_error!("MUXUI: Failed to load texture from \"{}\"", path_str);
+        if path_str.is_empty() {
             None
+        } else {
+            Some(Self {
+                path: path_str.to_string(),
+            })
         }
     }
 
     /// Creates a placeholder, invalid [`TextureElement`] representing an empty/default texture.
     pub fn invalid() -> Self {
-        Self(Texture::default())
-    }
-}
-
-impl Drop for TextureElement {
-    fn drop(&mut self) {
-        if is_texture_valid(self.0) {
-            unload_texture(self.0);
+        Self {
+            path: String::new(),
         }
     }
 }
 
 impl Element for TextureElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        if is_texture_valid(self.0) {
+        let texture = get_cached_texture(&self.path);
+        if is_texture_valid(texture) {
             let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
             let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
             let color = get_color_field(style, &[name, "color"], WHITE);
-            draw_texture_ex(self.0, position, rotation, scale, color);
+            draw_texture_ex(texture, position, rotation, scale, color);
         }
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let texture = get_cached_texture(&self.path);
         let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
-        Vector2 {
-            x: self.0.width as f32 * scale,
-            y: self.0.height as f32 * scale,
+        if is_texture_valid(texture) {
+            Vector2 {
+                x: texture.width as f32 * scale,
+                y: texture.height as f32 * scale,
+            }
+        } else {
+            Vector2::zero()
         }
     }
 }

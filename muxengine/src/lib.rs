@@ -196,11 +196,17 @@ impl EngineController {
 
     /// Query GSS and calculate the layout values to output a SceneView snapshot.
     pub fn current_view(&self, scenes: &Gss) -> SceneView {
-        let background_texture = muxutils::get_string_field(
-            scenes,
-            &["scenes", &self.current_scene, "background"],
-            "data/assets/fallback_bg.png",
-        );
+        let background_texture = if let Some(path) = scenes.get::<String>(&["scenes", &self.current_scene, "background"]) {
+            path.clone()
+        } else if let Some(_) = scenes.get::<Object>(&["scenes", &self.current_scene, "background"]) {
+            muxutils::get_string_field(
+                scenes,
+                &["scenes", &self.current_scene, "background", "path"],
+                "data/assets/fallback_bg.png",
+            )
+        } else {
+            "data/assets/fallback_bg.png".to_string()
+        };
 
         let mut hotspots = Vec::new();
 

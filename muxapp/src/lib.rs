@@ -15,7 +15,7 @@
 //!
 //! fn main() {
 //!     App::init(800, 600, "My App", || AppContext)
-//!         .on_update(|ctx, engine, style| {
+//!         .on_update(|ctx, style| {
 //!             begin_drawing();
 //!             clear_background(get_color(0x181818FF));
 //!             TextElement::new("Hello, Muxui!").place(style, "title");
@@ -28,7 +28,7 @@
 use std::path::{Path, PathBuf};
 
 use muxengine::{EngineController, GameState};
-use muxutils::gss::{Gss, load_gss_from_file};
+use muxutils::gss::{Gss, load_gss_from_file, Object};
 use notify::Watcher;
 
 pub use muxengine;
@@ -358,6 +358,20 @@ impl<AppContext> App<AppContext> {
 
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
+
+            // Automatically render the active scene's background texture
+            let view = context.engine.current_view(&style);
+            let scene_style_path = ["scenes", &view.scene_id];
+            if let Some(scene_style) = style.get::<Object>(&scene_style_path) {
+                let bg_el = TextureElement::new(&view.background_texture);
+                bg_el.place(scene_style, "background");
+            } else {
+                let texture = get_cached_texture(&view.background_texture);
+                if is_texture_valid(texture) {
+                    draw_texture_ex(texture, Vector2::zero(), 0.0, 1.0, WHITE);
+                }
+            }
+
             update(&mut context, &style);
             end_texture_mode();
 
@@ -368,12 +382,14 @@ impl<AppContext> App<AppContext> {
             end_drawing();
         }
 
+        log_info!("MUX: Window close requested. Cleaning up...");
+
         if is_render_texture_valid(target) {
             unload_render_texture(target);
         }
 
-        log_info!("MUX: Window close requested. Cleaning up...");
         drop(context);
+        muxui::clear_texture_cache();
         if audio_device {
             log_info!("MUX: Closing audio device");
             close_audio_device();

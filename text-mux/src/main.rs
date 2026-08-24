@@ -3,10 +3,7 @@ use muxapp::Context;
 use muxapp::muxengine::*;
 use muxapp::muxui::*;
 
-struct AppState {
-    background_texture: String,
-    background_texture_element: Option<TextureElement>,
-}
+struct AppState;
 
 fn main() {
     App::init(800, 600, "Mux Point-and-Click Engine", init_data)
@@ -19,10 +16,7 @@ fn main() {
 }
 
 fn init_data() -> AppState {
-    AppState {
-        background_texture: "".to_string(),
-        background_texture_element: None,
-    }
+    AppState
 }
 
 fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
@@ -40,13 +34,6 @@ fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
 
 fn update(ctx: &mut Context<AppState>, style: &Style) {
     let view = ctx.engine().current_view(style);
-
-    let state = ctx.state_mut();
-    if state.background_texture != view.background_texture {
-        state.background_texture = view.background_texture.clone();
-        state.background_texture_element =
-            TextureElement::load_from_file(&view.background_texture);
-    }
 
     let mouse_pos = get_virtual_mouse_position();
     let mut hovered_hotspot = None;
@@ -80,16 +67,6 @@ fn update(ctx: &mut Context<AppState>, style: &Style) {
                 drawable_hotspot.push(el);
             }
         }
-    }
-
-    // Render background (fallback colors based on active scene)
-    if view.scene_id == "hallway" {
-        clear_background(get_color(0x28201CFF)); // Warm brown/grey for hallway
-        if let Some(texture) = &ctx.data().background_texture_element {
-            texture.place(style, "hallway");
-        }
-    } else if view.scene_id == "kitchen" {
-        clear_background(get_color(0x1C2830FF)); // Slate blue for kitchen
     }
 
     // Draw active hotspots using HotspotElement::place
