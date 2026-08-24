@@ -4,11 +4,11 @@ dialogue_box = {
     width = 760.0,
     height = 140.0,
     background_color = 0x0C0C0CFF,
-    border_color = 0xD4AF37FF, // Gold
+    border_color = "gold",
     color = "white",
     speaker = {
         font_size = 20.0,
-        color = 0xD4AF37FF,
+        color = dialogue_box.border_color,
     },
     text = {
         font_size = 18.0,
