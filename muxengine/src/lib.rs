@@ -1,3 +1,10 @@
+#![warn(missing_docs)]
+//! `muxengine` is the core point-and-click game engine for the Mux framework.
+//!
+//! It manages game state (`GameState`), cursor representations (`CursorType`),
+//! event processing (`EngineEvent`), scene snapshot generation (`SceneView`),
+//! and trigger/action execution (`EngineController`).
+
 use muxutils::gss::{Gss, Object};
 use std::collections::{HashMap, HashSet};
 
@@ -80,16 +87,27 @@ impl PartialEq for HotspotView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
     /// Sent when the player clicks on a hotspot area in the active scene.
-    ClickHotspot { hotspot_id: String },
+    ClickHotspot {
+        /// Unique identifier of the clicked hotspot.
+        hotspot_id: String,
+    },
     /// Sent when a UI control button is pressed.
-    ClickUiButton { button_id: String },
+    ClickUiButton {
+        /// Unique identifier of the pressed UI button.
+        button_id: String,
+    },
     /// Sent when the player uses an item on a hotspot.
     UseItem {
+        /// Unique identifier of the item being used.
         item_id: String,
+        /// Unique identifier of the target hotspot area.
         target_hotspot_id: String,
     },
     /// Sent when selecting a dialogue branch option.
-    SelectDialogOption { option_index: usize },
+    SelectDialogOption {
+        /// Index of the chosen dialogue option (0-based).
+        option_index: usize,
+    },
     /// Sent when clicking screen/dialogue to skip to the next line.
     SkipDialogue,
 }
@@ -109,6 +127,7 @@ pub struct SceneView {
     pub inventory: Vec<ItemView>,
 }
 impl SceneView {
+    /// Retrieve the GSS styling object for hotspots in the current scene.
     pub fn get_hotspots_style<'a>(&self, base: &'a Gss) -> Option<&'a Object> {
         base.get(&["scenes", &self.scene_id, "hotspots"])
     }
@@ -305,6 +324,7 @@ impl EngineController {
         }
     }
 
+    /// Evaluate a conditional expression string against current state.
     fn evaluate_condition(&self, cond: &str) -> bool {
         let cond = cond.trim();
         if cond.is_empty() {
@@ -324,6 +344,7 @@ impl EngineController {
         if invert { !val } else { val }
     }
 
+    /// Execute a trigger string, dispatching to actions or script hooks.
     fn execute_trigger(&mut self, trigger: &str) {
         let trigger = trigger.trim();
         if let Some(action_str) = trigger.strip_prefix("action:") {
@@ -337,6 +358,7 @@ impl EngineController {
         }
     }
 
+    /// Parse and execute an engine action string.
     fn execute_action(&mut self, action_str: &str) {
         let action_str = action_str.trim();
         let parts: Vec<&str> = action_str.splitn(2, ' ').collect();
