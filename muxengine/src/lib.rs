@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use gss::{Gss, Object};
-use raylib::Rectangle;
+use muxutils::gss::{Gss, Object};
+use muxutils::raylib::Rectangle;
 
 /// The cursor types for hotspot interactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,7 +139,6 @@ pub type ScriptHook = Box<dyn Fn(&mut GameState, &str) -> Option<String>>;
 
 /// The core point-and-click engine controller.
 pub struct EngineController {
-    scenes_gss: Gss,
     current_scene: String,
     state: GameState,
     active_dialogue: Option<DialogueView>,
@@ -148,9 +147,8 @@ pub struct EngineController {
 
 impl EngineController {
     /// Create a new point-and-click engine context.
-    pub fn new(scenes_gss: Gss, initial_scene: String) -> Self {
+    pub fn new(initial_scene: String) -> Self {
         Self {
-            scenes_gss,
             current_scene: initial_scene,
             state: GameState::default(),
             active_dialogue: None,
@@ -177,23 +175,22 @@ impl EngineController {
     }
 
     /// Query GSS and calculate the layout values to output a SceneView snapshot.
-    pub fn current_view(&self, screen_w: f32, screen_h: f32) -> SceneView {
+    pub fn current_view(&self, scenes: &Gss, screen_w: f32, screen_h: f32) -> SceneView {
         let background_texture = get_string_field(
-            &self.scenes_gss,
+            scenes,
             &[&self.current_scene, "background"],
             "data/assets/fallback_bg.png",
         );
 
         let mut hotspots = Vec::new();
 
-        if let Some(hotspots_obj) = self
-            .scenes_gss
+        if let Some(hotspots_obj) = scenes
             .get::<Object>(&[&self.current_scene, "hotspots"])
         {
             for hotspot_name in hotspots_obj.get_fields() {
                 // Check if this hotspot should be visible based on its conditions
                 let cond_path = [&self.current_scene, "hotspots", hotspot_name, "visible_if"];
-                if let Some(cond) = self.scenes_gss.get::<String>(&cond_path) {
+                if let Some(cond) = scenes.get::<String>(&cond_path) {
                     if !self.evaluate_condition(cond) {
                         continue;
                     }
@@ -201,36 +198,36 @@ impl EngineController {
 
                 // Resolve boundaries
                 let x = get_relative_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "left"],
                     screen_w,
                     0.0,
                 );
                 let y = get_relative_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "top"],
                     screen_h,
                     0.0,
                 );
                 let w = get_f32_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "width"],
                     0.0,
                 );
                 let h = get_f32_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "height"],
                     0.0,
                 );
 
                 let cursor_str = get_string_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "cursor"],
                     "pointer",
                 );
 
                 let tooltip = get_string_field(
-                    &self.scenes_gss,
+                    scenes,
                     &[&self.current_scene, "hotspots", hotspot_name, "tooltip"],
                     hotspot_name,
                 );
@@ -279,11 +276,11 @@ impl EngineController {
     }
 
     /// Process a UI interaction event.
-    pub fn process_event(&mut self, event: EngineEvent) {
+    pub fn process_event(&mut self, scenes: &Gss, event: EngineEvent) {
         match event {
             EngineEvent::ClickHotspot { hotspot_id } => {
                 let path = [&self.current_scene, "hotspots", &hotspot_id, "on_click"];
-                if let Some(on_click) = self.scenes_gss.get::<String>(&path) {
+                if let Some(on_click) = scenes.get::<String>(&path) {
                     let on_click_val = on_click.clone();
                     self.execute_trigger(&on_click_val);
                 }
@@ -293,7 +290,7 @@ impl EngineController {
             }
             EngineEvent::UseItem { item_id, target_hotspot_id } => {
                 let path = [&self.current_scene, "hotspots", &target_hotspot_id, "on_use"];
-                if let Some(on_use_obj) = self.scenes_gss.get::<Object>(&path) {
+                if let Some(on_use_obj) = scenes.get::<Object>(&path) {
                     if let Some(action) = on_use_obj.get::<String>(&[&item_id]) {
                         let action_val = action.clone();
                         self.execute_trigger(&action_val);
@@ -423,9 +420,8 @@ mod tests {
 
     #[test]
     fn test_condition_evaluation() {
-        let gss = gss::parse_str("").unwrap();
-        let mut controller = EngineController::new(gss, "scene_1".to_string());
-        
+        let mut controller = EngineController::new("scene_1".to_string());
+
         controller.state.flags.insert("has_item".to_string(), true);
         controller.state.flags.insert("unlocked".to_string(), false);
         controller.state.inventory.insert("brass_key".to_string());
@@ -441,8 +437,7 @@ mod tests {
 
     #[test]
     fn test_execute_actions() {
-        let gss = gss::parse_str("").unwrap();
-        let mut controller = EngineController::new(gss, "scene_1".to_string());
+        let mut controller = EngineController::new("scene_1".to_string());
 
         controller.execute_action("pick_up_item shiny_gem");
         assert!(controller.state.inventory.contains("shiny_gem"));

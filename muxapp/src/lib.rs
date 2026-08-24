@@ -1,0 +1,291 @@
+use std::path::{Path, PathBuf};
+
+use muxutils::gss::{Gss, load_gss_from_file};
+use muxengine::EngineController;
+use notify::Watcher;
+
+pub use muxengine;
+pub use muxui;
+
+use muxui::*;
+
+struct Manager<Context> {
+    update: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
+    reload: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
+    style_file: Option<PathBuf>,
+    fps: i32,
+    audio_device: bool,
+    context: Context,
+    initial_scene: Option<String>,
+}
+
+/// The main application runner that initializes the Raylib window, sets up event loops,
+/// handles style reloading (both on F5 and automatic filesystem modification watch), and processes frame updates.
+///
+/// # Type Parameters
+///
+/// * `Context` - The application-defined state/context type passed to callbacks.
+pub struct App<Context> {
+    width: i32,
+    height: i32,
+    title: String,
+    update: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
+    reload: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
+    style_file: Option<PathBuf>,
+    initial_scene: Option<String>,
+    fps: i32,
+    audio_device: bool,
+    init_context: Box<dyn FnOnce() -> Context + 'static>,
+}
+
+impl<Context> App<Context> {
+    /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The width of the application window in pixels.
+    /// * `height` - The height of the application window in pixels.
+    /// * `title` - The title of the application window.
+    /// * `init_context` - A closure that generates the initial application-defined state/context.
+    pub fn init<F: FnOnce() -> Context + 'static>(
+        width: i32,
+        height: i32,
+        title: impl Into<String>,
+        init_context: F,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            title: title.into(),
+            update: None,
+            reload: None,
+            style_file: None,
+            initial_scene: None,
+            fps: muxutils::DEFAULT_FPS,
+            audio_device: false,
+            init_context: Box::new(init_context),
+        }
+    }
+
+    /// Enables the audio device for the application.
+    ///
+    /// If called, the audio device is initialized when the application starts running, and closed on cleanup.
+    pub fn set_audio_device(mut self) -> Self {
+        self.audio_device = true;
+        self
+    }
+
+    /// Sets the callback function to run on every frame update.
+    ///
+    /// The update function is called on every frame and is responsible for processing events,
+    /// updating the state, and drawing elements to the screen.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that accepts the mutable application context and style context.
+    pub fn on_update<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
+        mut self,
+        f: F,
+    ) -> Self {
+        self.update = Some(Box::new(f));
+        self
+    }
+
+    /// Sets the callback function to run when the style file is reloaded.
+    ///
+    /// The callback receives the mutable context and the newly loaded style.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A closure that accepts the mutable application context and style context.
+    pub fn on_reload<F: Fn(&mut Context, &mut EngineController, &Style) + 'static>(
+        mut self,
+        f: F,
+    ) -> Self {
+        self.reload = Some(Box::new(f));
+        self
+    }
+
+    /// Sets the file path for the style sheet configuration.
+    ///
+    /// If configured, the app will watch this file for modifications and reload it automatically
+    /// at runtime. The file can also be reloaded manually by pressing the F5 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path to the style sheet (e.g. "style.gss").
+    pub fn set_style_file(mut self, path: &str) -> Self {
+        self.style_file = Some(PathBuf::from(path));
+        self
+    }
+
+    /// Sets the target frames per second (FPS) for the update loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `fps` - The target frame rate (e.g. 60).
+    pub fn set_fps(mut self, fps: i32) -> Self {
+        self.fps = fps;
+        self
+    }
+
+    fn build(self) -> Manager<Context> {
+        let Self {
+            width,
+            height,
+            title,
+            update,
+            reload,
+            style_file,
+            fps,
+            audio_device,
+            init_context,
+            initial_scene,
+        } = self;
+        log_info!(
+            "MUX: Initializing window: {}x{} - \"{}\"",
+            width,
+            height,
+            title
+        );
+        unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
+        init_window(width, height, cstr!(&title));
+        if audio_device {
+            log_info!("MUX: Initializing audio device");
+            init_audio_device();
+        }
+
+        Manager {
+            update: update.unwrap_or(Box::new(|_, _, _| {
+                begin_drawing();
+                end_drawing();
+            })),
+            reload: reload.unwrap_or(Box::new(|_, _, _| {})),
+            style_file,
+            fps,
+            audio_device,
+            context: init_context(),
+            initial_scene,
+        }
+    }
+
+    pub fn set_initial_scene(mut self, initial_scene: impl ToString) -> Self {
+        self.initial_scene = Some(initial_scene.to_string());
+        self
+    }
+}
+
+impl<Context> App<Context> {
+    /// Runs the main application loop.
+    ///
+    /// This method builds the application manager, initializes the Raylib window,
+    /// sets up the filesystem modification watcher if a style file was specified,
+    /// and executes the update loop until the window is requested to close.
+    pub fn run(self) {
+        log_info!("MUX: Starting App run loop");
+        let Manager {
+            update,
+            reload,
+            style_file,
+            initial_scene,
+            fps,
+            audio_device,
+            mut context,
+        } = self.build();
+        set_target_fps(fps);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut style = load_style_fallback(style_file.as_ref(), Style::new());
+
+        let mut engine = EngineController::new(initial_scene.unwrap_or_default());
+        reload(&mut context, &mut engine, &style);
+
+        // 1. Declare the watcher OUTSIDE the block so it lives longer
+        let mut _watcher = None;
+
+        if let Some(ref path) = style_file {
+            let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+
+            if let Some(parent) = abs_path.parent() {
+                let abs_path_clone = abs_path.clone();
+                let tx_clone = tx.clone();
+
+                if let Ok(mut w) =
+                    notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            if event.paths.iter().any(|p| p == &abs_path_clone) {
+                                if event.kind.is_modify() || event.kind.is_create() {
+                                    let _ = tx_clone.send(());
+                                }
+                            }
+                        }
+                    })
+                {
+                    if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
+                        log_info!(
+                            "MUX: File watcher set up for style file: {}",
+                            abs_path.display()
+                        );
+                        // 2. Assign it here
+                        _watcher = Some(w);
+                    } else {
+                        log_warn!(
+                            "MUX: Failed to watch directory for style file: {}",
+                            parent.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        while !window_should_close() {
+            if is_key_pressed(KEY_F5) {
+                log_info!("MUX: F5 pressed. Reloading style...");
+                style = load_style_fallback(style_file.as_ref(), style);
+            }
+
+            let mut should_reload = false;
+            while rx.try_recv().is_ok() {
+                should_reload = true;
+            }
+            if should_reload {
+                log_info!("MUX: Style file modified. Reloading style...");
+                style = load_style_fallback(style_file.as_ref(), style);
+                reload(&mut context, &mut engine, &style);
+            }
+
+            update(&mut context, &mut engine, &style);
+        }
+        log_info!("MUX: Window close requested. Cleaning up...");
+        drop(context);
+        if audio_device {
+            log_info!("MUX: Closing audio device");
+            close_audio_device();
+        }
+        close_window();
+        log_info!("MUX: App terminated");
+    }
+}
+
+
+fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
+    if let Some(style_file) = style_file.as_ref() {
+        match load_gss_from_file(style_file) {
+            Ok(ok) => {
+                log_info!(
+                    "MUX: Style loaded successfully from {}",
+                    style_file.as_ref().display()
+                );
+                return ok;
+            }
+            Err(err) => {
+                log_warn!(
+                    "MUX: Cannot load file {} because of {}",
+                    style_file.as_ref().display(),
+                    err
+                );
+            }
+        }
+    }
+    fallback
+}

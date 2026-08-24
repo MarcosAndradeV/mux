@@ -1,9 +1,7 @@
 [package]
-name = "muxui"
+name = "muxengine"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 muxutils = { path = "../muxutils", version = "0.1.0" }
-notify = "8.2.0"
-# lex-just-parse = { version = "1.3.1", features = ["interning"] }

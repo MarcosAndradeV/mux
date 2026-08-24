@@ -2,12 +2,12 @@
 
 members = [
     "muxui",
+    "muxengine",
+    "muxapp",
     "raylib-rs",
     "GSS",
     "layout-maker",
-    "mux-engine"
+    "muxutils",
 ]
 
 resolver = "3"
-
-default-run = "layout-maker"

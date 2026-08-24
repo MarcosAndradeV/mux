@@ -144,9 +144,7 @@ dependencies = [
 name = "layout-maker"
 version = "0.1.0"
 dependencies = [
- "gss",
- "mux-engine",
- "muxui",
+ "muxapp",
 ]
 
 [[package]]
@@ -202,19 +200,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "mux-engine"
+name = "muxapp"
 version = "0.1.0"
 dependencies = [
- "gss",
- "raylib",
+ "muxengine",
+ "muxui",
+ "muxutils",
+ "notify",
+]
+
+[[package]]
+name = "muxengine"
+version = "0.1.0"
+dependencies = [
+ "muxutils",
 ]
 
 [[package]]
 name = "muxui"
 version = "0.1.0"
 dependencies = [
- "gss",
+ "muxutils",
  "notify",
+]
+
+[[package]]
+name = "muxutils"
+version = "0.1.0"
+dependencies = [
+ "gss",
  "raylib",
 ]
 

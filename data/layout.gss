@@ -1,74 +1,82 @@
-atk_button = {
-    align = "center",
-    valign = "middle",
+dialogue_box = {
+    top = 73%,
+    left = 2.5%,
+    width = 760.0,
+    height = 140.0,
+    background_color = 0x0C0C0CFF,
+    border_color = 0xD4AF37FF, // Gold
     color = "white",
-    width = 140.0,
-    height = 40.0,
-}
-
-atk_button_stack = {
-    // frame = true,
-    top = 82%,
-    left = 50%,
-    direction = "horizontal",
-    align = "center",
-    gap = 40.0,
-}
-
-top_hp_bar_stack = {
-    // frame = true,
-    top = 12%,
-    left = 50%,
-    direction = "horizontal",
-    align = "center",
-    gap = 100.0,
-}
-
-vs_text = {
-    valign = "center",
-}
-
-hp_bar = {
-    background_color = "white",
-    foreground_color = "green",
-    width = 240.0,
-    height = 30.0,
-}
-
-
-
-player_hp_bar = {
-    // frame = true,
-    background_color = hp_bar.background_color,
-    foreground_color = hp_bar.foreground_color,
-    width = hp_bar.width,
-    height = hp_bar.height,
-    top = 12%,
-    left = 22.5%,
-    align = "center",
-    hp_text = {
-        top = 13%,
-        left = 22.5%,
-        color = "black",
-        font_size = 16.0,
-        align = "center",
+    speaker = {
+        font_size = 20.0,
+        color = 0xD4AF37FF,
+    },
+    text = {
+        font_size = 18.0,
+    },
+    prompt = {
+        font_size = 12.0,
+        color = "gray",
     }
 }
 
-enemy_hp_bar = {
-    // frame = true,
-    background_color = hp_bar.background_color,
-    foreground_color = hp_bar.foreground_color,
-    width = hp_bar.width,
-    height = hp_bar.height,
-    top = 12%,
-    left = 77.5%,
-    align = "center",
-    hp_text = {
-        top = 13%,
-        left = 77.5%,
-        color = "black",
-        font_size = 16.0,
-        align = "center",
+inventory_panel = {
+    top = 3%,
+    left = 68%,
+    font_size = 16.0,
+    gap = 20.0,
+    title = {
+        color = "gray",
+    },
+    item = {
+        color = "gold",
+    }
+}
+
+scene_hallway = {
+    background = "data/assets/hallway_bg.png",
+    hotspots = {
+        door_to_kitchen = {
+            left = 15%,
+            top = 20%,
+            width = 120.0,
+            height = 240.0,
+            cursor = "exit_left",
+            tooltip = "Go to Kitchen",
+            on_click = "action:change_scene scene_kitchen",
+        },
+        locked_drawer = {
+            left = 60%,
+            top = 50%,
+            width = 100.0,
+            height = 80.0,
+            cursor = "grab",
+            tooltip = "Locked Drawer",
+            on_click = "script:interact_drawer",
+        }
+    }
+}
+
+scene_kitchen = {
+    background = "data/assets/kitchen_bg.png",
+    hotspots = {
+        door_to_hallway = {
+            left = 75%,
+            top = 20%,
+            width = 120.0,
+            height = 240.0,
+            cursor = "exit_right",
+            tooltip = "Go back to Hallway",
+            on_click = "action:change_scene scene_hallway",
+        },
+        brass_key = {
+            left = 40%,
+            top = 70%,
+            width = 60.0,
+            height = 40.0,
+            cursor = "grab",
+            tooltip = "Take key",
+            visible_if = "!flags.has_brass_key",
+            on_click = "action:pick_up_item brass_key",
+        }
     }
 }

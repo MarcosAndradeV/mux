@@ -32,372 +32,11 @@
 //! }
 //! ```
 
-use std::path::{Path, PathBuf};
-
-use gss::{Gss, load_gss_from_file};
-use notify::Watcher;
-
-pub use raylib::*;
-
-// raylib helpers commit it back later!
-
-const DEFAULT_ROTATION: f32 = 0.0;
-const DEFAULT_FONT_SIZE: f32 = 20.0;
-const DEFAULT_SPACING: f32 = 2.0;
-const DEFAULT_SCALE: f32 = 1.0;
-const DEFAULT_FPS: i32 = 24;
-
-const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
-const MOUSE_CLICK_RADIUS: f32 = 2.0;
-
 /// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
-pub type Style = Gss;
+pub type Style = muxutils::gss::Gss;
 
-struct Manager<Context> {
-    update: Box<dyn Fn(&mut Context, &Style) + 'static>,
-    reload: Box<dyn Fn(&mut Context, &Style) + 'static>,
-    style_file: Option<PathBuf>,
-    fps: i32,
-    audio_device: bool,
-    context: Context,
-}
-
-/// The main application runner that initializes the Raylib window, sets up event loops,
-/// handles style reloading (both on F5 and automatic filesystem modification watch), and processes frame updates.
-///
-/// # Type Parameters
-///
-/// * `Context` - The application-defined state/context type passed to callbacks.
-pub struct App<Context> {
-    width: i32,
-    height: i32,
-    title: String,
-    update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
-    reload: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
-    style_file: Option<PathBuf>,
-    fps: i32,
-    audio_device: bool,
-    init_context: Box<dyn FnOnce() -> Context + 'static>,
-}
-
-impl<Context> App<Context> {
-    /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
-    ///
-    /// # Arguments
-    ///
-    /// * `width` - The width of the application window in pixels.
-    /// * `height` - The height of the application window in pixels.
-    /// * `title` - The title of the application window.
-    /// * `init_context` - A closure that generates the initial application-defined state/context.
-    pub fn init<F: FnOnce() -> Context + 'static>(
-        width: i32,
-        height: i32,
-        title: impl Into<String>,
-        init_context: F,
-    ) -> Self {
-        Self {
-            width,
-            height,
-            title: title.into(),
-            update: None,
-            reload: None,
-            style_file: None,
-            fps: DEFAULT_FPS,
-            audio_device: false,
-            init_context: Box::new(init_context),
-        }
-    }
-
-    /// Enables the audio device for the application.
-    ///
-    /// If called, the audio device is initialized when the application starts running, and closed on cleanup.
-    pub fn set_audio_device(mut self) -> Self {
-        self.audio_device = true;
-        self
-    }
-
-    /// Sets the callback function to run on every frame update.
-    ///
-    /// The update function is called on every frame and is responsible for processing events,
-    /// updating the state, and drawing elements to the screen.
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_update<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
-        self.update = Some(Box::new(f));
-        self
-    }
-
-    /// Sets the callback function to run when the style file is reloaded.
-    ///
-    /// The callback receives the mutable context and the newly loaded style.
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_reload<F: for<'a, 'b> Fn(&'a mut Context, &Style) + 'static>(mut self, f: F) -> Self {
-        self.reload = Some(Box::new(f));
-        self
-    }
-
-    /// Sets the file path for the style sheet configuration.
-    ///
-    /// If configured, the app will watch this file for modifications and reload it automatically
-    /// at runtime. The file can also be reloaded manually by pressing the F5 key.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The file path to the style sheet (e.g. "style.gss").
-    pub fn set_style_file(mut self, path: &str) -> Self {
-        self.style_file = Some(PathBuf::from(path));
-        self
-    }
-
-    /// Sets the target frames per second (FPS) for the update loop.
-    ///
-    /// # Arguments
-    ///
-    /// * `fps` - The target frame rate (e.g. 60).
-    pub fn set_fps(mut self, fps: i32) -> Self {
-        self.fps = fps;
-        self
-    }
-
-    fn build(self) -> Manager<Context> {
-        let Self {
-            width,
-            height,
-            title,
-            update,
-            reload,
-            style_file,
-            fps,
-            audio_device,
-            init_context,
-        } = self;
-        log_info!(
-            "MUXUI: Initializing window: {}x{} - \"{}\"",
-            width,
-            height,
-            title
-        );
-        unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
-        init_window(width, height, cstr!(&title));
-        if audio_device {
-            log_info!("MUXUI: Initializing audio device");
-            init_audio_device();
-        }
-
-        Manager {
-            update: update.unwrap_or(Box::new(|_, _| {
-                begin_drawing();
-                end_drawing();
-            })),
-            reload: reload.unwrap_or(Box::new(|_, _| {})),
-            style_file,
-            fps,
-            audio_device,
-            context: init_context(),
-        }
-    }
-}
-
-impl<Context> App<Context> {
-    /// Runs the main application loop.
-    ///
-    /// This method builds the application manager, initializes the Raylib window,
-    /// sets up the filesystem modification watcher if a style file was specified,
-    /// and executes the update loop until the window is requested to close.
-    pub fn run(self) {
-        log_info!("MUXUI: Starting App run loop");
-        let Manager {
-            update,
-            reload,
-            style_file,
-            fps,
-            audio_device,
-            mut context,
-        } = self.build();
-        set_target_fps(fps);
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut style = load_style_fallback(style_file.as_ref(), Style::new());
-        reload(&mut context, &style);
-
-        // 1. Declare the watcher OUTSIDE the block so it lives longer
-        let mut _watcher = None;
-
-        if let Some(ref path) = style_file {
-            let abs_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-
-            if let Some(parent) = abs_path.parent() {
-                let abs_path_clone = abs_path.clone();
-                let tx_clone = tx.clone();
-
-                if let Ok(mut w) =
-                    notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                        if let Ok(event) = res {
-                            if event.paths.iter().any(|p| p == &abs_path_clone) {
-                                if event.kind.is_modify() || event.kind.is_create() {
-                                    let _ = tx_clone.send(());
-                                }
-                            }
-                        }
-                    })
-                {
-                    if w.watch(parent, notify::RecursiveMode::NonRecursive).is_ok() {
-                        log_info!(
-                            "MUXUI: File watcher set up for style file: {}",
-                            abs_path.display()
-                        );
-                        // 2. Assign it here
-                        _watcher = Some(w);
-                    } else {
-                        log_warn!(
-                            "MUXUI: Failed to watch directory for style file: {}",
-                            parent.display()
-                        );
-                    }
-                }
-            }
-        }
-
-        while !window_should_close() {
-            if is_key_pressed(KEY_F5) {
-                log_info!("MUXUI: F5 pressed. Reloading style...");
-                style = load_style_fallback(style_file.as_ref(), style);
-            }
-
-            let mut should_reload = false;
-            while rx.try_recv().is_ok() {
-                should_reload = true;
-            }
-            if should_reload {
-                log_info!("MUXUI: Style file modified. Reloading style...");
-                style = load_style_fallback(style_file.as_ref(), style);
-                reload(&mut context, &style);
-            }
-
-            update(&mut context, &style);
-        }
-        log_info!("MUXUI: Window close requested. Cleaning up...");
-        drop(context);
-        if audio_device {
-            log_info!("MUXUI: Closing audio device");
-            close_audio_device();
-        }
-        close_window();
-        log_info!("MUXUI: App terminated");
-    }
-}
-
-fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
-    if let Some(style_file) = style_file.as_ref() {
-        match load_gss_from_file(style_file) {
-            Ok(ok) => {
-                log_info!(
-                    "MUXUI: Style loaded successfully from {}",
-                    style_file.as_ref().display()
-                );
-                return ok;
-            }
-            Err(err) => {
-                log_warn!(
-                    "MUXUI: Cannot load file {} because of {}",
-                    style_file.as_ref().display(),
-                    err
-                );
-            }
-        }
-    }
-    fallback
-}
-
-/// Retrieves a color property from the stylesheet [`Style`] at the given path segment slice (e.g., `&["button", "color"]`).
-///
-/// It supports reading color values defined as string names (e.g. `"red"`, `"dark green"`) or
-/// hex codes as a `u32` value (e.g. `0xFF00FFFF`). If the color cannot be found or parsed,
-/// the `default` color is returned.
-pub fn get_color_field(style: &Style, path: &[&str], default: Color) -> Color {
-    if let Some(string) = style.get::<String>(path) {
-        map_color(string)
-    } else if let Some(hex) = style.get::<u32>(path) {
-        get_color(*hex)
-    } else {
-        default
-    }
-}
-
-/// Retrieves a boolean property from the stylesheet [`Style`] for a specific element name and field.
-///
-/// Returns `default` if the field is not present.
-pub fn get_bool_field(style: &Style, name: &str, field: &str, default: bool) -> bool {
-    if let Some(&val) = style.get::<bool>(&[name, field]) {
-        val
-    } else {
-        default
-    }
-}
-
-/// Retrieves a float (`f32`) property from the stylesheet [`Style`] at the given path.
-///
-/// It supports reading direct float values or converting unsigned integers (`u32`) to floats.
-/// Returns `default` if the field is not present or cannot be retrieved as `f32` or `u32`.
-pub fn get_f32_field(style: &Style, path: &[&str], default: f32) -> f32 {
-    if let Some(&val) = style.get::<f32>(path) {
-        val
-    } else if let Some(&val) = style.get::<u32>(path) {
-        val as f32
-    } else {
-        default
-    }
-}
-
-/// Retrieves a relative coordinate or float property from the stylesheet [`Style`] at the given path.
-///
-/// If the retrieved value is an `f32`, it is scaled by the provided `scale` factor.
-/// If the value is a direct `u32`, it is returned raw without scaling.
-/// Returns `default` if the field is not present.
-pub fn get_relative_field(style: &Style, path: &[&str], scale: f32, default: f32) -> f32 {
-    if let Some(&val) = style.get::<f32>(path) {
-        val * scale
-    } else if let Some(&val) = style.get::<u32>(path) {
-        val as f32
-    } else {
-        default
-    }
-}
-
-fn map_color(string: &str) -> Color {
-    match string {
-        "light gray" => LIGHTGRAY,
-        "gray" => GRAY,
-        "dark gray" => DARKGRAY,
-        "yellow" => YELLOW,
-        "gold" => GOLD,
-        "orange" => ORANGE,
-        "pink" => PINK,
-        "red" => RED,
-        "maroon" => MAROON,
-        "green" => GREEN,
-        "lime" => LIME,
-        "dark green" => DARKGREEN,
-        "sky blue" => SKYBLUE,
-        "blue" => BLUE,
-        "dark blue" => DARKBLUE,
-        "purple" => PURPLE,
-        "violet" => VIOLET,
-        "dark purple" => DARKPURPLE,
-        "beige" => BEIGE,
-        "brown" => BROWN,
-        "dark brown" => DARKBROWN,
-        "white" => WHITE,
-        "black" => BLACK,
-        "magenta" => MAGENTA,
-        _ => BLANK,
-    }
-}
+pub use muxutils::raylib::*;
+use muxutils::*;
 
 /// Events generated by user interactions with UI elements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -901,6 +540,220 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
         self.0.measure(style, name)
+    }
+}
+
+/// A point-and-click hotspot interaction zone.
+pub struct HotspotElement {
+    /// Identifier for the hotspot.
+    pub id: String,
+    cached_bounds: std::cell::Cell<Rectangle>,
+}
+
+impl HotspotElement {
+    /// Create a new hotspot element.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            cached_bounds: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+        }
+    }
+}
+
+impl Element for HotspotElement {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let size = self.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+        self.cached_bounds.set(rec);
+
+        // Hover effect: draw semi-transparent background
+        if check_collision_circle_rec(get_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+            let hover_color = get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
+            unsafe {
+                DrawRectangleRec(rec, hover_color);
+            }
+        }
+
+        // Debug border: draw frame if configured
+        if get_bool_field(style, name, "debug", false) || get_bool_field(style, name, "frame", false) {
+            draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, YELLOW);
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        Vector2::new(
+            style.get_or_default(&[name, "width"]),
+            style.get_or_default(&[name, "height"]),
+        )
+    }
+
+    fn event(&self) -> Event {
+        let rec = self.cached_bounds.get();
+        if is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+            && check_collision_circle_rec(get_mouse_position(), MOUSE_CLICK_RADIUS, rec)
+        {
+            Event::ButtonClicked
+        } else {
+            Event::None
+        }
+    }
+}
+
+/// A dialogue overlay box.
+pub struct DialogueElement {
+    /// Who is speaking.
+    pub speaker: String,
+    /// Dialogue text line.
+    pub text: String,
+}
+
+impl DialogueElement {
+    /// Create a new dialogue box element.
+    pub fn new(speaker: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            speaker: speaker.into(),
+            text: text.into(),
+        }
+    }
+}
+
+impl Element for DialogueElement {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let size = self.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+
+        let bg_color = get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
+        let border_color = get_color_field(style, &[name, "border_color"], GOLD);
+        let text_color = get_color_field(style, &[name, "color"], WHITE);
+
+        unsafe {
+            DrawRectangleRec(rec, bg_color);
+        }
+        draw_rectangle_lines_ex(rec, 2.0, border_color);
+
+        // Draw speaker name
+        let speaker_tag = format!("{}:", self.speaker);
+        let font_size = get_f32_field(style, &[name, "speaker", "font_size"], 20.0);
+        let speaker_color = get_color_field(style, &[name, "speaker", "color"], GOLD);
+        draw_text_ex(
+            get_font_default(),
+            cstr!(&speaker_tag),
+            Vector2::new(position.x + 20.0, position.y + 20.0),
+            font_size,
+            2.0,
+            speaker_color,
+        );
+
+        // Draw dialogue text
+        let text_font_size = get_f32_field(style, &[name, "text", "font_size"], 18.0);
+        draw_text_ex(
+            get_font_default(),
+            cstr!(&self.text),
+            Vector2::new(position.x + 20.0, position.y + 55.0),
+            text_font_size,
+            2.0,
+            text_color,
+        );
+
+        // Draw skip instruction prompt
+        let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
+        let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
+        let prompt_text = "(Click or Press Space to continue)";
+        let prompt_w = measure_text_ex(get_font_default(), cstr!(prompt_text), prompt_font_size, 2.0).x;
+
+        draw_text_ex(
+            get_font_default(),
+            cstr!(prompt_text),
+            Vector2::new(position.x + size.x - prompt_w - 20.0, position.y + size.y - prompt_font_size - 15.0),
+            prompt_font_size,
+            2.0,
+            prompt_color,
+        );
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        Vector2::new(
+            style.get_or_default(&[name, "width"]),
+            style.get_or_default(&[name, "height"]),
+        )
+    }
+}
+
+/// An element representing a list/grid of inventory items.
+pub struct InventoryElement {
+    /// Items inside inventory list.
+    pub items: Vec<String>,
+}
+
+impl InventoryElement {
+    /// Create a new inventory list element.
+    pub fn new(items: Vec<String>) -> Self {
+        Self { items }
+    }
+}
+
+impl Element for InventoryElement {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let title_color = get_color_field(style, &[name, "title", "color"], GRAY);
+        let item_color = get_color_field(style, &[name, "item", "color"], GOLD);
+        let font_size = get_f32_field(style, &[name, "font_size"], 16.0);
+        let gap = get_f32_field(style, &[name, "gap"], 20.0);
+
+        // Draw INVENTORY: label
+        draw_text_ex(
+            get_font_default(),
+            cstr!("INVENTORY:"),
+            position,
+            font_size,
+            2.0,
+            title_color,
+        );
+
+        let label_w = measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
+        let mut current_x = position.x + label_w + gap;
+
+        if self.items.is_empty() {
+            draw_text_ex(
+                get_font_default(),
+                cstr!("(empty)"),
+                Vector2::new(current_x, position.y),
+                font_size,
+                2.0,
+                DARKGRAY,
+            );
+        } else {
+            for item in &self.items {
+                let item_label = format!("[{}]", item);
+                draw_text_ex(
+                    get_font_default(),
+                    cstr!(&item_label),
+                    Vector2::new(current_x, position.y),
+                    font_size,
+                    2.0,
+                    item_color,
+                );
+
+                let item_w = measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
+                current_x += item_w + gap;
+            }
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        Vector2::new(
+            style.get_or_default(&[name, "width"]),
+            style.get_or_default(&[name, "height"]),
+        )
     }
 }
 
