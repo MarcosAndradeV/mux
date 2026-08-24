@@ -1,7 +1,34 @@
+#![warn(missing_docs)]
+//! # muxapp
+//!
+//! A lightweight library for building interactive applications using Raylib and Graph Style Sheets (GSS).
+//!
+//! - [`App`]: The main container driving the application window and render loop.
+//!
+//! ## Basic Example
+//!
+//! ```no_run
+//! use muxapp::*;
+//! use muxapp::muxui::*;
+//!
+//! struct AppContext;
+//!
+//! fn main() {
+//!     App::init(800, 600, "My App", || AppContext)
+//!         .on_update(|ctx, engine, style| {
+//!             begin_drawing();
+//!             clear_background(get_color(0x181818FF));
+//!             TextElement::new("Hello, Muxui!").place(style, "title");
+//!             end_drawing();
+//!         })
+//!         .run();
+//! }
+//! ```
+
 use std::path::{Path, PathBuf};
 
+use muxengine::{EngineController, GameState};
 use muxutils::gss::{Gss, load_gss_from_file};
-use muxengine::EngineController;
 use notify::Watcher;
 
 pub use muxengine;
@@ -12,6 +39,7 @@ use muxui::*;
 struct Manager<Context> {
     update: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
     load: Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>,
+    script_hook: Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -31,6 +59,7 @@ pub struct App<Context> {
     title: String,
     update: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
     load: Option<Box<dyn Fn(&mut Context, &mut EngineController, &Style) + 'static>>,
+    script_hook: Option<Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>>,
     style_file: Option<PathBuf>,
     initial_scene: Option<String>,
     fps: i32,
@@ -59,6 +88,7 @@ impl<Context> App<Context> {
             title: title.into(),
             update: None,
             load: None,
+            script_hook: None,
             style_file: None,
             initial_scene: None,
             fps: muxutils::DEFAULT_FPS,
@@ -129,6 +159,15 @@ impl<Context> App<Context> {
         self
     }
 
+    /// Set an optional hook to run custom script triggers.
+    pub fn set_script_hook<F>(mut self, hook: F) -> Self
+    where
+        F: Fn(&mut GameState, &str) -> Option<String> + 'static,
+    {
+        self.script_hook = Some(Box::new(hook));
+        self
+    }
+
     fn build(self) -> Manager<Context> {
         let Self {
             width,
@@ -141,6 +180,7 @@ impl<Context> App<Context> {
             audio_device,
             init_context,
             initial_scene,
+            script_hook,
         } = self;
         log_info!(
             "MUX: Initializing window: {}x{} - \"{}\"",
@@ -161,6 +201,7 @@ impl<Context> App<Context> {
                 end_drawing();
             })),
             load: load.unwrap_or(Box::new(|_, _, _| {})),
+            script_hook: script_hook.unwrap_or(Box::new(|_, _| None)),
             style_file,
             fps,
             audio_device,
@@ -169,6 +210,7 @@ impl<Context> App<Context> {
         }
     }
 
+    /// Sets the inital scene for the engine
     pub fn set_initial_scene(mut self, initial_scene: impl ToString) -> Self {
         self.initial_scene = Some(initial_scene.to_string());
         self
@@ -191,6 +233,7 @@ impl<Context> App<Context> {
             fps,
             audio_device,
             mut context,
+            script_hook,
         } = self.build();
         set_target_fps(fps);
 
@@ -198,6 +241,7 @@ impl<Context> App<Context> {
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
 
         let mut engine = EngineController::new(initial_scene.unwrap_or_default());
+        engine.set_script_hook(script_hook);
         load(&mut context, &mut engine, &style);
 
         // 1. Declare the watcher OUTSIDE the block so it lives longer
@@ -266,7 +310,6 @@ impl<Context> App<Context> {
         log_info!("MUX: App terminated");
     }
 }
-
 
 fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     if let Some(style_file) = style_file.as_ref() {

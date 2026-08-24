@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use muxutils::gss::{Gss, Object};
+use std::collections::{HashMap, HashSet};
 
 /// The cursor types for hotspot interactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,10 @@ pub enum EngineEvent {
     /// Sent when a UI control button is pressed.
     ClickUiButton { button_id: String },
     /// Sent when the player uses an item on a hotspot.
-    UseItem { item_id: String, target_hotspot_id: String },
+    UseItem {
+        item_id: String,
+        target_hotspot_id: String,
+    },
     /// Sent when selecting a dialogue branch option.
     SelectDialogOption { option_index: usize },
     /// Sent when clicking screen/dialogue to skip to the next line.
@@ -177,9 +180,7 @@ impl EngineController {
 
         let mut hotspots = Vec::new();
 
-        if let Some(hotspots_obj) = scenes
-            .get::<Object>(&[&self.current_scene, "hotspots"])
-        {
+        if let Some(hotspots_obj) = scenes.get::<Object>(&[&self.current_scene, "hotspots"]) {
             for hotspot_name in hotspots_obj.get_fields() {
                 // Check if this hotspot should be visible based on its conditions
                 let cond_path = [&self.current_scene, "hotspots", hotspot_name, "visible_if"];
@@ -251,8 +252,16 @@ impl EngineController {
             EngineEvent::SkipDialogue => {
                 self.active_dialogue = None;
             }
-            EngineEvent::UseItem { item_id, target_hotspot_id } => {
-                let path = [&self.current_scene, "hotspots", &target_hotspot_id, "on_use"];
+            EngineEvent::UseItem {
+                item_id,
+                target_hotspot_id,
+            } => {
+                let path = [
+                    &self.current_scene,
+                    "hotspots",
+                    &target_hotspot_id,
+                    "on_use",
+                ];
                 if let Some(on_use_obj) = scenes.get::<Object>(&path) {
                     if let Some(action) = on_use_obj.get::<String>(&[&item_id]) {
                         let action_val = action.clone();
@@ -329,7 +338,11 @@ impl EngineController {
                 let sub_parts: Vec<&str> = arg.splitn(2, ' ').collect();
                 if sub_parts.len() == 2 {
                     let speaker = sub_parts[0].trim().to_string();
-                    let text = sub_parts[1].trim().trim_matches('\'').trim_matches('"').to_string();
+                    let text = sub_parts[1]
+                        .trim()
+                        .trim_matches('\'')
+                        .trim_matches('"')
+                        .to_string();
                     self.active_dialogue = Some(DialogueView {
                         speaker,
                         text,

@@ -8,29 +8,9 @@
 //!
 //! `muxui` provides a simple, declarative way to lay out and render graphical elements in a window.
 //! The library's core structure revolves around:
-//! - [`App`]: The main container driving the application window and render loop.
 //! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
 //! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], and [`StackLayout`].
 //! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
-//!
-//! ## Basic Example
-//!
-//! ```no_run
-//! use muxui::*;
-//!
-//! struct AppContext;
-//!
-//! fn main() {
-//!     App::init(800, 600, "My App", || AppContext)
-//!         .on_update(|ctx, style| {
-//!             begin_drawing();
-//!             clear_background(get_color(0x181818FF));
-//!             TextElement::new("Hello, Muxui!").place(style, "title");
-//!             end_drawing();
-//!         })
-//!         .run();
-//! }
-//! ```
 
 /// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
 pub type Style = muxutils::gss::Gss;

@@ -10,7 +10,7 @@ struct Context {
 fn main() {
     App::init(800, 600, "Mux Point-and-Click Engine", init_context)
         .on_update(update)
-        .on_load(load)
+        .set_script_hook(script_hook)
         .set_style_file("data/layout.gss")
         .set_initial_scene("scene_hallway")
         .set_fps(30)
@@ -20,23 +20,21 @@ fn main() {
 fn init_context() -> Context {
     Context {
         background_texture: "".to_string(),
-        background_texture_element: None
+        background_texture_element: None,
     }
 }
 
-fn load(_ctx: &mut Context, engine: &mut EngineController, _style: &Style) {
-    engine.set_script_hook(|state, script_name| {
-        match script_name {
-            "interact_drawer" => {
-                if *state.flags.get("has_brass_key").unwrap_or(&false) {
-                    Some("action:show_dialogue Drawer 'You unlocked the drawer using the brass key! Inside you found a shiny gemstone! You Win!'".to_string())
-                } else {
-                    Some("action:show_dialogue Drawer 'The drawer is locked tightly. It seems to require a key.'".to_string())
-                }
+fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
+    match script_name {
+        "interact_drawer" => {
+            if *state.flags.get("has_brass_key").unwrap_or(&false) {
+                Some("action:show_dialogue Drawer 'You unlocked the drawer using the brass key! Inside you found a shiny gemstone! You Win!'".to_string())
+            } else {
+                Some("action:show_dialogue Drawer 'The drawer is locked tightly. It seems to require a key.'".to_string())
             }
-            _ => None
         }
-    });
+        _ => None,
+    }
 }
 
 fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
@@ -74,11 +72,9 @@ fn update(ctx: &mut Context, engine: &mut EngineController, style: &Style) {
             // Trigger action on left click
             if let Some(hotspot) = hovered_hotspot {
                 if el.click() {
-                    events.push(
-                        EngineEvent::ClickHotspot {
-                            hotspot_id: hotspot.id.clone(),
-                        },
-                    );
+                    events.push(EngineEvent::ClickHotspot {
+                        hotspot_id: hotspot.id.clone(),
+                    });
                 }
             }
 
