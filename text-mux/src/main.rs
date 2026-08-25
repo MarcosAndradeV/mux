@@ -6,7 +6,7 @@ use muxapp::muxui::*;
 struct AppState;
 
 fn main() {
-    App::init(800, 600, "Mux Point-and-Click Engine", init_data)
+    App::init(800, 600, "Mux Point-and-Click Engine", init_state)
         .on_update(update)
         .set_script_hook(script_hook)
         .set_style_file("data/test.gss")
@@ -15,7 +15,7 @@ fn main() {
         .run();
 }
 
-fn init_data() -> AppState {
+fn init_state() -> AppState {
     AppState
 }
 
