@@ -220,7 +220,10 @@ pub fn get_cached_texture(path: &str) -> Texture2D {
 pub fn clear_texture_cache() {
     TEXTURE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        log_info!("MUXUI: Clearing texture cache ({} textures)...", cache.len());
+        log_info!(
+            "MUXUI: Clearing texture cache ({} textures)...",
+            cache.len()
+        );
         for (_, texture) in cache.drain() {
             unsafe {
                 if IsWindowReady() && is_texture_valid(texture) {
@@ -566,20 +569,19 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
 /// A point-and-click hotspot interaction zone.
 #[derive(Debug)]
 pub struct HotspotElement {
-    /// Identifier for the hotspot.
-    pub id: String,
+    path: String,
     cached_rec: std::cell::Cell<Rectangle>,
 }
 
 impl HotspotElement {
     /// Create a new hotspot element and caches it's rectangle
-    pub fn new_from_style(style: &Style, name: &str) -> Self {
+    pub fn new_from_style(style: &Style, scene_id: &str, id: &str) -> Self {
         let e = Self {
-            id: name.to_string(),
+            path: format!("scenes.{scene_id}.hotspots.{id}"),
             cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
         };
-        let position = e.get_position(style, name);
-        let size = e.measure(style, name);
+        let position = e.get_position(style, &e.path);
+        let size = e.measure(style, &e.path);
         let rec = Rectangle {
             x: position.x,
             y: position.y,
@@ -608,6 +610,11 @@ impl HotspotElement {
                 self.cached_rec.get(),
             )
     }
+
+    /// Get full path
+    pub fn path(&self) -> &str {
+        &self.path
+    }
 }
 
 impl Element for HotspotElement {
@@ -630,18 +637,21 @@ impl Element for HotspotElement {
         }
 
         // Draw hotspot label inside/above the bounds
-        let label = format!("[{}]", get_string_field(style, &[name, "tooltip"], ""));
-        let bounds = self.get_rec(style, name);
 
-        let font_size = 12;
-        let text_w = measure_text(cstr!(&label), font_size);
-        draw_text(
-            cstr!(&label),
-            (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
-            (bounds.y + bounds.height / 2.0 - 6.0) as i32,
-            font_size,
-            if self.hover() { YELLOW } else { WHITE },
-        );
+        if let Some(val) = style.get::<String>(&[name, "tooltip"]) {
+            let label = format!("[{}]", val);
+            let bounds = self.get_rec(style, name);
+
+            let font_size = 12;
+            let text_w = measure_text(cstr!(&label), font_size);
+            draw_text(
+                cstr!(&label),
+                (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
+                (bounds.y + bounds.height / 2.0 - 6.0) as i32,
+                font_size,
+                if self.hover() { YELLOW } else { WHITE },
+            );
+        }
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {

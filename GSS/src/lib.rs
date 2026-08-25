@@ -93,17 +93,41 @@ impl Object {
     }
 
     pub fn get<T: 'static>(&self, path: &[&str]) -> Option<&T> {
-        self.get_impl(path, 0, self.max_depth)
+        let mut flat_path = Vec::new();
+        for segment in path {
+            for part in segment.split('.') {
+                if !part.is_empty() {
+                    flat_path.push(part);
+                }
+            }
+        }
+        self.get_impl(&flat_path, 0, self.max_depth)
     }
 
     pub fn get_or_default<T: Clone + 'static + Default>(&self, path: &[&str]) -> T {
-        self.get_impl(path, 0, self.max_depth)
+        let mut flat_path = Vec::new();
+        for segment in path {
+            for part in segment.split('.') {
+                if !part.is_empty() {
+                    flat_path.push(part);
+                }
+            }
+        }
+        self.get_impl(&flat_path, 0, self.max_depth)
             .cloned()
             .unwrap_or_default()
     }
 
     pub fn get_or<T: Clone + 'static>(&self, path: &[&str], default: T) -> T {
-        self.get_impl(path, 0, self.max_depth)
+        let mut flat_path = Vec::new();
+        for segment in path {
+            for part in segment.split('.') {
+                if !part.is_empty() {
+                    flat_path.push(part);
+                }
+            }
+        }
+        self.get_impl(&flat_path, 0, self.max_depth)
             .cloned()
             .unwrap_or(default)
     }
@@ -654,6 +678,26 @@ mod tests {
         assert_eq!(
             gss.get_or_default::<String>(&["f", "g", "inner"]),
             "Hi".to_string()
+        );
+    }
+
+    #[test]
+    fn test_dot_separated_lookup() {
+        let source = r#"
+            a = {
+                b = {
+                    c = "found_it"
+                }
+            }
+        "#;
+        let gss = parse_str(source).expect("Should parse");
+        assert_eq!(
+            gss.get::<String>(&["a.b", "c"]),
+            Some(&"found_it".to_string())
+        );
+        assert_eq!(
+            gss.get::<String>(&["a.b.c"]),
+            Some(&"found_it".to_string())
         );
     }
 }

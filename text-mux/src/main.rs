@@ -47,10 +47,10 @@ fn update(ctx: &mut Context<AppState>, style: &Style) {
                 .process_event(style, EngineEvent::SkipDialogue);
         }
     } else {
-        if let Some(hotspots_style) = hotspots_style {
+        if hotspots_style.is_some() {
             for hotspot in &view.hotspots {
                 // Find if mouse is hovering over any hotspot using HotspotElement boundary check
-                let el = HotspotElement::new_from_style(hotspots_style, &hotspot.id);
+                let el = HotspotElement::new_from_style(style, &view.scene_id, &hotspot.id);
                 if el.hover() {
                     hovered_hotspot = Some(hotspot);
                 }
@@ -70,9 +70,9 @@ fn update(ctx: &mut Context<AppState>, style: &Style) {
     }
 
     // Draw active hotspots using HotspotElement::place
-    if let Some(hotspots_style) = hotspots_style {
+    if hotspots_style.is_some() {
         for el in drawable_hotspot {
-            el.place(hotspots_style, &el.id);
+            el.place(style, el.path());
         }
     }
 

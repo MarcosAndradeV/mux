@@ -362,9 +362,10 @@ impl<AppContext> App<AppContext> {
             // Automatically render the active scene's background texture
             let view = context.engine.current_view(&style);
             let scene_style_path = ["scenes", &view.scene_id];
-            if let Some(scene_style) = style.get::<Object>(&scene_style_path) {
+            if style.get::<Object>(&scene_style_path).is_some() {
                 let bg_el = TextureElement::new(&view.background_texture);
-                bg_el.place(scene_style, "background");
+                let bg_path = format!("scenes.{}.background", view.scene_id);
+                bg_el.place(&style, &bg_path);
             } else {
                 let texture = get_cached_texture(&view.background_texture);
                 if is_texture_valid(texture) {
