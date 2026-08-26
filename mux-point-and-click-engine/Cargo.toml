@@ -1,5 +1,5 @@
 [package]
-name = "muxengine"
+name = "mux-point-and-click-engine"
 version = "0.1.0"
 edition = "2024"
 

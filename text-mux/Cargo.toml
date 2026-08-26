@@ -5,7 +5,7 @@ edition = "2024"
 default-run = "text_mux"
 
 [dependencies]
-muxapp = { path = "../muxapp", version = "0.1.0" }
+muxapp = { path = "../muxapp", version = "0.1.0", features = ["point-and-click"] }
 
 [[bin]]
 name = "text_mux"

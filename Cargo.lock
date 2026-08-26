@@ -193,20 +193,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "muxapp"
+name = "mux-point-and-click-engine"
 version = "0.1.0"
 dependencies = [
- "muxengine",
- "muxui",
  "muxutils",
- "notify",
 ]
 
 [[package]]
-name = "muxengine"
+name = "muxapp"
 version = "0.1.0"
 dependencies = [
+ "mux-point-and-click-engine",
+ "muxui",
  "muxutils",
+ "notify",
 ]
 
 [[package]]

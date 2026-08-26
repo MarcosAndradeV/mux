@@ -2,7 +2,7 @@
 
 members = [
     "muxui",
-    "muxengine",
+    "mux-point-and-click-engine",
     "muxapp",
     "muxutils",
     "raylib-rs",

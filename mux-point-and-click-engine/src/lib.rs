@@ -1,5 +1,5 @@
 #![warn(missing_docs)]
-//! `muxengine` is the core point-and-click game engine for the Mux framework.
+//! `mux-point-and-click-engine` is the core point-and-click game engine for the Mux framework.
 //!
 //! It manages game state (`GameState`), cursor representations (`CursorType`),
 //! event processing (`EngineEvent`), scene snapshot generation (`SceneView`),

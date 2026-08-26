@@ -326,7 +326,17 @@ impl<E: Element> ButtonElement<E> {
         }
     }
 
-    fn click(&self) -> bool {
+    /// Check if element is being hovered
+    pub fn hover(&self) -> bool {
+        check_collision_circle_rec(
+            get_virtual_mouse_position(),
+            MOUSE_CLICK_RADIUS,
+            self.cached_rec.get(),
+        )
+    }
+
+    /// Check if element is clicked
+    pub fn click(&self) -> bool {
         is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
             && check_collision_circle_rec(
                 get_virtual_mouse_position(),
@@ -348,7 +358,6 @@ impl<E: Element> ButtonElement<E> {
 
 impl<E: Element> Element for ButtonElement<E> {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let color = get_color_field(style, &[name, "button", "color"], BLANK);
         let size = self.measure(style, name);
         let rec = Rectangle {
             x: position.x,
@@ -357,8 +366,17 @@ impl<E: Element> Element for ButtonElement<E> {
             height: size.y,
         };
         self.cached_rec.set(rec);
-        unsafe {
-            DrawRectangleRec(rec, color);
+
+        // Hover effect: draw semi-transparent background
+        if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+            let hover_color = get_color_field(
+                style,
+                &[name, "button", "hover_color"],
+                get_color(0xFFFFFF33),
+            );
+            unsafe {
+                DrawRectangleRec(rec, hover_color);
+            }
         }
         self.element.draw(position, style, name);
     }
@@ -566,272 +584,282 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
     }
 }
 
-/// A point-and-click hotspot interaction zone.
-#[derive(Debug)]
-pub struct HotspotElement {
-    path: String,
-    cached_rec: std::cell::Cell<Rectangle>,
-}
+/// UI elements specific to point-and-click game engine interactions (hotspots, dialogue overlay, inventory list).
+#[cfg(feature = "point-and-click")]
+pub mod point_and_click {
+    use super::*;
 
-impl HotspotElement {
-    /// Create a new hotspot element and caches it's rectangle
-    pub fn new_from_style(style: &Style, scene_id: &str, id: &str) -> Self {
-        let e = Self {
-            path: format!("scenes.{scene_id}.hotspots.{id}"),
-            cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
-        };
-        let position = e.get_position(style, &e.path);
-        let size = e.measure(style, &e.path);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-        e.cached_rec.set(rec);
-        e
+    /// A point-and-click hotspot interaction zone.
+    #[derive(Debug)]
+    pub struct HotspotElement {
+        path: String,
+        cached_rec: std::cell::Cell<Rectangle>,
     }
 
-    /// Check if element is being hovered
-    pub fn hover(&self) -> bool {
-        check_collision_circle_rec(
-            get_virtual_mouse_position(),
-            MOUSE_CLICK_RADIUS,
-            self.cached_rec.get(),
-        )
-    }
+    impl HotspotElement {
+        /// Create a new hotspot element and caches it's rectangle
+        pub fn new_from_style(style: &Style, scene_id: &str, id: &str) -> Self {
+            let e = Self {
+                path: format!("scenes.{scene_id}.hotspots.{id}"),
+                cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+            };
+            let position = e.get_position(style, &e.path);
+            let size = e.measure(style, &e.path);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            e.cached_rec.set(rec);
+            e
+        }
 
-    /// Check if element is clicked
-    pub fn click(&self) -> bool {
-        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-            && check_collision_circle_rec(
+        /// Check if element is being hovered
+        pub fn hover(&self) -> bool {
+            check_collision_circle_rec(
                 get_virtual_mouse_position(),
                 MOUSE_CLICK_RADIUS,
                 self.cached_rec.get(),
             )
+        }
+
+        /// Check if element is clicked
+        pub fn click(&self) -> bool {
+            is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+                && check_collision_circle_rec(
+                    get_virtual_mouse_position(),
+                    MOUSE_CLICK_RADIUS,
+                    self.cached_rec.get(),
+                )
+        }
+
+        /// Get full path
+        pub fn path(&self) -> &str {
+            &self.path
+        }
     }
 
-    /// Get full path
-    pub fn path(&self) -> &str {
-        &self.path
-    }
-}
+    impl Element for HotspotElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let size = self.measure(style, name);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            self.cached_rec.set(rec);
 
-impl Element for HotspotElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let size = self.measure(style, name);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-        self.cached_rec.set(rec);
+            // Hover effect: draw semi-transparent background
+            if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+                let hover_color = get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
+                unsafe {
+                    DrawRectangleRec(rec, hover_color);
+                }
+            }
 
-        // Hover effect: draw semi-transparent background
-        if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
-            let hover_color = get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
-            unsafe {
-                DrawRectangleRec(rec, hover_color);
+            // Draw hotspot label inside/above the bounds
+
+            if let Some(val) = style.get::<String>(&[name, "tooltip"]) {
+                let label = format!("[{}]", val);
+                let bounds = self.get_rec(style, name);
+
+                let font_size = 12;
+                let text_w = measure_text(cstr!(&label), font_size);
+                draw_text(
+                    cstr!(&label),
+                    (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
+                    (bounds.y + bounds.height / 2.0 - 6.0) as i32,
+                    font_size,
+                    if self.hover() { YELLOW } else { WHITE },
+                );
             }
         }
 
-        // Draw hotspot label inside/above the bounds
-
-        if let Some(val) = style.get::<String>(&[name, "tooltip"]) {
-            let label = format!("[{}]", val);
-            let bounds = self.get_rec(style, name);
-
-            let font_size = 12;
-            let text_w = measure_text(cstr!(&label), font_size);
-            draw_text(
-                cstr!(&label),
-                (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
-                (bounds.y + bounds.height / 2.0 - 6.0) as i32,
-                font_size,
-                if self.hover() { YELLOW } else { WHITE },
-            );
-        }
-    }
-
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
-    }
-
-    fn event(&self) -> Event {
-        if self.click() {
-            Event::ButtonClicked
-        } else {
-            Event::None
-        }
-    }
-}
-
-/// A dialogue overlay box.
-pub struct DialogueElement {
-    /// Who is speaking.
-    pub speaker: String,
-    /// Dialogue text line.
-    pub text: String,
-}
-
-impl DialogueElement {
-    /// Create a new dialogue box element.
-    pub fn new(speaker: impl Into<String>, text: impl Into<String>) -> Self {
-        Self {
-            speaker: speaker.into(),
-            text: text.into(),
-        }
-    }
-}
-
-impl Element for DialogueElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let size = self.measure(style, name);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-
-        let bg_color = get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
-        let border_color = get_color_field(style, &[name, "border_color"], GOLD);
-        let text_color = get_color_field(style, &[name, "color"], WHITE);
-
-        unsafe {
-            DrawRectangleRec(rec, bg_color);
-        }
-        draw_rectangle_lines_ex(rec, 2.0, border_color);
-
-        // Draw speaker name
-        let speaker_tag = format!("{}:", self.speaker);
-        let font_size = get_f32_field(style, &[name, "speaker", "font_size"], 20.0);
-        let speaker_color = get_color_field(style, &[name, "speaker", "color"], GOLD);
-        draw_text_ex(
-            get_font_default(),
-            cstr!(&speaker_tag),
-            Vector2::new(position.x + 20.0, position.y + 20.0),
-            font_size,
-            2.0,
-            speaker_color,
-        );
-
-        // Draw dialogue text
-        let text_font_size = get_f32_field(style, &[name, "text", "font_size"], 18.0);
-        draw_text_ex(
-            get_font_default(),
-            cstr!(&self.text),
-            Vector2::new(position.x + 20.0, position.y + 55.0),
-            text_font_size,
-            2.0,
-            text_color,
-        );
-
-        // Draw skip instruction prompt
-        let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
-        let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
-        let prompt_text = "(Click or Press Space to continue)";
-        let prompt_w = measure_text_ex(
-            get_font_default(),
-            cstr!(prompt_text),
-            prompt_font_size,
-            2.0,
-        )
-        .x;
-
-        draw_text_ex(
-            get_font_default(),
-            cstr!(prompt_text),
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
             Vector2::new(
-                position.x + size.x - prompt_w - 20.0,
-                position.y + size.y - prompt_font_size - 15.0,
-            ),
-            prompt_font_size,
-            2.0,
-            prompt_color,
-        );
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
+
+        fn event(&self) -> Event {
+            if self.click() {
+                Event::ButtonClicked
+            } else {
+                Event::None
+            }
+        }
     }
 
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
+    /// A dialogue overlay box.
+    pub struct DialogueElement {
+        /// Who is speaking.
+        pub speaker: String,
+        /// Dialogue text line.
+        pub text: String,
     }
-}
 
-/// An element representing a list/grid of inventory items.
-pub struct InventoryElement {
-    /// Items inside inventory list.
-    pub items: Vec<String>,
-}
-
-impl InventoryElement {
-    /// Create a new inventory list element.
-    pub fn new(items: Vec<String>) -> Self {
-        Self { items }
+    impl DialogueElement {
+        /// Create a new dialogue box element.
+        pub fn new(speaker: impl Into<String>, text: impl Into<String>) -> Self {
+            Self {
+                speaker: speaker.into(),
+                text: text.into(),
+            }
+        }
     }
-}
 
-impl Element for InventoryElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let title_color = get_color_field(style, &[name, "title", "color"], GRAY);
-        let item_color = get_color_field(style, &[name, "item", "color"], GOLD);
-        let font_size = get_f32_field(style, &[name, "font_size"], 16.0);
-        let gap = get_f32_field(style, &[name, "gap"], 20.0);
+    impl Element for DialogueElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let size = self.measure(style, name);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
 
-        // Draw INVENTORY: label
-        draw_text_ex(
-            get_font_default(),
-            cstr!("INVENTORY:"),
-            position,
-            font_size,
-            2.0,
-            title_color,
-        );
+            let bg_color = get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
+            let border_color = get_color_field(style, &[name, "border_color"], GOLD);
+            let text_color = get_color_field(style, &[name, "color"], WHITE);
 
-        let label_w = measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
-        let mut current_x = position.x + label_w + gap;
+            unsafe {
+                DrawRectangleRec(rec, bg_color);
+            }
+            draw_rectangle_lines_ex(rec, 2.0, border_color);
 
-        if self.items.is_empty() {
+            // Draw speaker name
+            let speaker_tag = format!("{}:", self.speaker);
+            let font_size = get_f32_field(style, &[name, "speaker", "font_size"], 20.0);
+            let speaker_color = get_color_field(style, &[name, "speaker", "color"], GOLD);
             draw_text_ex(
                 get_font_default(),
-                cstr!("(empty)"),
-                Vector2::new(current_x, position.y),
+                cstr!(&speaker_tag),
+                Vector2::new(position.x + 20.0, position.y + 20.0),
                 font_size,
                 2.0,
-                DARKGRAY,
+                speaker_color,
             );
-        } else {
-            for item in &self.items {
-                let item_label = format!("[{}]", item);
+
+            // Draw dialogue text
+            let text_font_size = get_f32_field(style, &[name, "text", "font_size"], 18.0);
+            draw_text_ex(
+                get_font_default(),
+                cstr!(&self.text),
+                Vector2::new(position.x + 20.0, position.y + 55.0),
+                text_font_size,
+                2.0,
+                text_color,
+            );
+
+            // Draw skip instruction prompt
+            let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
+            let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
+            let prompt_text = "(Click or Press Space to continue)";
+            let prompt_w = measure_text_ex(
+                get_font_default(),
+                cstr!(prompt_text),
+                prompt_font_size,
+                2.0,
+            )
+            .x;
+
+            draw_text_ex(
+                get_font_default(),
+                cstr!(prompt_text),
+                Vector2::new(
+                    position.x + size.x - prompt_w - 20.0,
+                    position.y + size.y - prompt_font_size - 15.0,
+                ),
+                prompt_font_size,
+                2.0,
+                prompt_color,
+            );
+        }
+
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
+            Vector2::new(
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
+    }
+
+    /// An element representing a list/grid of inventory items.
+    pub struct InventoryElement {
+        /// Items inside inventory list.
+        pub items: Vec<String>,
+    }
+
+    impl InventoryElement {
+        /// Create a new inventory list element.
+        pub fn new(items: Vec<String>) -> Self {
+            Self { items }
+        }
+    }
+
+    impl Element for InventoryElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let title_color = get_color_field(style, &[name, "title", "color"], GRAY);
+            let item_color = get_color_field(style, &[name, "item", "color"], GOLD);
+            let font_size = get_f32_field(style, &[name, "font_size"], 16.0);
+            let gap = get_f32_field(style, &[name, "gap"], 20.0);
+
+            // Draw INVENTORY: label
+            draw_text_ex(
+                get_font_default(),
+                cstr!("INVENTORY:"),
+                position,
+                font_size,
+                2.0,
+                title_color,
+            );
+
+            let label_w = measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
+            let mut current_x = position.x + label_w + gap;
+
+            if self.items.is_empty() {
                 draw_text_ex(
                     get_font_default(),
-                    cstr!(&item_label),
+                    cstr!("(empty)"),
                     Vector2::new(current_x, position.y),
                     font_size,
                     2.0,
-                    item_color,
+                    DARKGRAY,
                 );
+            } else {
+                for item in &self.items {
+                    let item_label = format!("[{}]", item);
+                    draw_text_ex(
+                        get_font_default(),
+                        cstr!(&item_label),
+                        Vector2::new(current_x, position.y),
+                        font_size,
+                        2.0,
+                        item_color,
+                    );
 
-                let item_w =
-                    measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
-                current_x += item_w + gap;
+                    let item_w =
+                        measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
+                    current_x += item_w + gap;
+                }
             }
         }
-    }
 
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
+            Vector2::new(
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
     }
 }
+
+#[cfg(feature = "point-and-click")]
+pub use point_and_click::*;
+
 
 #[cfg(test)]
 mod tests {

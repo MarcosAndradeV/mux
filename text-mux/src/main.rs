@@ -1,6 +1,6 @@
 use muxapp::App;
 use muxapp::Context;
-use muxapp::muxengine::*;
+use muxapp::mux_point_and_click_engine::*;
 use muxapp::muxui::*;
 
 struct AppState;

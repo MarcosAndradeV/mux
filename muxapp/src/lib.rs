@@ -34,7 +34,7 @@ use muxutils::gss::Object;
 use notify::Watcher;
 
 #[cfg(feature = "point-and-click")]
-pub use muxengine;
+pub use mux_point_and_click_engine;
 pub use muxui;
 
 use muxui::*;
@@ -52,7 +52,7 @@ pub trait Engine {
 impl Engine for () {}
 
 #[cfg(feature = "point-and-click")]
-impl Engine for muxengine::EngineController {
+impl Engine for mux_point_and_click_engine::EngineController {
     fn pre_render(&self, style: &Style) {
         let view = self.current_view(style);
         let scene_style_path = ["scenes", &view.scene_id];
@@ -426,7 +426,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
 }
 
 #[cfg(feature = "point-and-click")]
-impl<AppState> App<AppState, muxengine::EngineController> {
+impl<AppState> App<AppState, mux_point_and_click_engine::EngineController> {
     /// Initializes a new [`App`] instance configured with the point-and-click engine backend (`EngineController`).
     pub fn init_point_and_click<F: FnOnce() -> AppState + 'static>(
         width: i32,
@@ -439,20 +439,20 @@ impl<AppState> App<AppState, muxengine::EngineController> {
             height,
             title,
             init_state,
-            muxengine::EngineController::new(String::new()),
+            mux_point_and_click_engine::EngineController::new(String::new()),
         )
     }
 
     /// Sets the initial scene for the point-and-click engine.
     pub fn set_initial_scene(mut self, initial_scene: impl ToString) -> Self {
-        self.engine = muxengine::EngineController::new(initial_scene.to_string());
+        self.engine = mux_point_and_click_engine::EngineController::new(initial_scene.to_string());
         self
     }
 
     /// Set an optional hook to run custom script triggers in the point-and-click engine.
     pub fn set_script_hook<F>(mut self, hook: F) -> Self
     where
-        F: Fn(&mut muxengine::GameState, &str) -> Option<String> + 'static,
+        F: Fn(&mut mux_point_and_click_engine::GameState, &str) -> Option<String> + 'static,
     {
         self.engine.set_script_hook(hook);
         self
