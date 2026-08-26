@@ -189,6 +189,12 @@ impl EngineController {
         &mut self.state
     }
 
+
+    /// Get a immutable reference to the game state.
+    pub fn state(&self) -> &GameState {
+        &self.state
+    }
+
     /// Retrieve the current scene ID.
     pub fn current_scene_id(&self) -> &str {
         &self.current_scene
@@ -417,10 +423,6 @@ impl EngineController {
                 muxutils::raylib::log_warn!("MUXENGINE: Unknown action command: \"{}\"", command);
             }
         }
-    }
-
-    pub fn state(&self) -> &GameState {
-        &self.state
     }
 }
 

@@ -37,9 +37,10 @@ The Mux workspace is modularized into dedicated crates to ensure clean separatio
 ### Member Crate Overview
 *   [`GSS`](file:///home/marcos/Projects/mux/GSS/src/lib.rs): Parsers and data models for Graph Style Sheets (nested objects, references, percentages, integers, and floats).
 *   [`muxutils`](file:///home/marcos/Projects/mux/muxutils/src/lib.rs): General utilities, viewport calculations, scaling algorithms, and raw Raylib FFI bindings.
-*   [`muxengine`](file:///home/marcos/Projects/mux/muxengine/src/lib.rs): Pure game state logic, dialogue state structures, actionVM triggers, and condition evaluations. It has **no dependency** on graphics rendering, making it 100% unit-testable in headless mode.
+*   [`muxengine`](file:///home/marcos/Projects/mux/muxengine/src/lib.rs): Pure point-and-click game state logic, dialogue state structures, actionVM triggers, and condition evaluations. It has **no dependency** on graphics rendering, making it 100% unit-testable in headless mode.
 *   [`muxui`](file:///home/marcos/Projects/mux/muxui/src/lib.rs): Standard layout components (`StackLayout`, `ButtonElement`, `DialogueElement`, `HotspotElement`, `InventoryElement`, etc.) implementing the [`Element`] trait.
-*   [`muxapp`](file:///home/marcos/Projects/mux/muxapp/src/lib.rs): The windowing shell which runs Raylib, tracks F5 stylesheet reloading, manages aspect ratio target viewport resizing, and drives the cooperative update loop.
+*   [`muxapp`](file:///home/marcos/Projects/mux/muxapp/src/lib.rs): The windowing shell which runs Raylib, tracks F5 stylesheet reloading, manages aspect ratio target viewport resizing, and drives the cooperative update loop. It defines the [`Engine`] trait for pluggable engine backends and provides the optional `point-and-click` feature flag for built-in `muxengine` integration.
+
 
 ---
 
@@ -86,13 +87,15 @@ Mux uses an in-process cooperative Client-Server loop. The logic and presentatio
     ```
 
 ### Context wrapper
-The application loop feeds a [`Context<AppState>`] structure to your update callbacks. This provides safe access to both your custom variables and the engine controller:
+The application loop feeds a [`Context<AppState, E>`] structure to your update callbacks. This provides safe access to both your custom variables and the engine controller:
 ```rust
-fn update(ctx: &mut Context<AppState>, style: &Style) {
+fn update(ctx: &mut Context<AppState, EngineController>, style: &Style) {
     let state = ctx.state_mut(); // Access custom state variables
     let engine = ctx.engine_mut(); // Process custom logical transitions
 }
 ```
+For engine-less apps, `E = ()` and `ctx.state_mut()` is used directly.
+
 
 ---
 

@@ -6,7 +6,7 @@ use muxapp::muxui::*;
 struct AppState;
 
 fn main() {
-    App::init(800, 600, "Mux Point-and-Click Engine", init_state)
+    App::init_point_and_click(800, 600, "Mux Point-and-Click Engine", init_state)
         .on_update(update)
         .set_script_hook(script_hook)
         .set_style_file("data/test.gss")
@@ -32,7 +32,7 @@ fn script_hook(state: &mut GameState, script_name: &str) -> Option<String> {
     }
 }
 
-fn update(ctx: &mut Context<AppState>, style: &Style) {
+fn update(ctx: &mut Context<AppState, EngineController>, style: &Style) {
     let view = ctx.engine().current_view(style);
 
     let mouse_pos = get_virtual_mouse_position();
