@@ -47,7 +47,7 @@ pub struct Context<State> {
 
 impl<State> Context<State> {
     /// Returns a shared reference to the user-defined application state.
-    pub fn data(&self) -> &State {
+    pub fn state(&self) -> &State {
         &self.state
     }
 

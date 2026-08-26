@@ -418,6 +418,10 @@ impl EngineController {
             }
         }
     }
+
+    pub fn state(&self) -> &GameState {
+        &self.state
+    }
 }
 
 #[cfg(test)]
