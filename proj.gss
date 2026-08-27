@@ -4,5 +4,6 @@ config = {
         test  = "cargo test",
         test_muxapp = "cargo test --package muxapp --no-default-features",
         test_point_and_click = "cargo test --package muxapp --features point-and-click"
+        test_all = "proj run check && proj run test && proj run test_muxapp && proj run test_point_and_click"
     }
 }
