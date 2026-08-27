@@ -313,8 +313,8 @@ pub struct ButtonElement<E: Element> {
 }
 
 impl<E: Element> ButtonElement<E> {
-    /// Creates a new `ButtonElement` wrapping the given element.
-    pub fn new(element: E) -> Self {
+    /// Creates a new `ButtonElement` wrapping the given element with no valid rectangle.
+    pub fn new_with_no_cached_rec(element: E) -> Self {
         Self {
             element,
             cached_rec: std::cell::Cell::new(Rectangle {
@@ -324,6 +324,21 @@ impl<E: Element> ButtonElement<E> {
                 height: 0.0,
             }),
         }
+    }
+
+    /// Creates a new `ButtonElement` wrapping the given element with valid rectangle.
+    pub fn new(element: E, style: &Style, name: &str) -> Self {
+        let e = Self::new_with_no_cached_rec(element);
+        let position = e.get_position(style, name);
+        let size = e.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+        e.cached_rec.set(rec);
+        e
     }
 
     /// Check if element is being hovered
@@ -1027,7 +1042,7 @@ mod tests {
     #[test]
     fn test_button_element_wrapping() {
         let child = MockElement::new(60.0, 30.0);
-        let mut btn = ButtonElement::new(child);
+        let mut btn = ButtonElement::new_with_no_cached_rec(child);
 
         let style = Style::new();
         // Verify size measurement delegates to wrapped element
