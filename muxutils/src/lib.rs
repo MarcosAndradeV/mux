@@ -219,6 +219,25 @@ pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> Stri
     }
 }
 
+/// Retrieves a `usize` property from the stylesheet [`Style`] at the given path.
+///
+/// It supports reading direct integer (`usize`, `u32`, `i32`) or float (`f32`) values converted to `usize`.
+/// Returns `default` if the field is not present or cannot be parsed.
+pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usize {
+    if let Some(&val) = obj.get::<usize>(path) {
+        val
+    } else if let Some(&val) = obj.get::<u32>(path) {
+        val as usize
+    } else if let Some(&val) = obj.get::<i32>(path) {
+        val.max(0) as usize
+    } else if let Some(&val) = obj.get::<f32>(path) {
+        val.max(0.0) as usize
+    } else {
+        default
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

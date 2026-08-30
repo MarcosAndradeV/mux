@@ -9,7 +9,7 @@
 //! `muxui` provides a simple, declarative way to lay out and render graphical elements in a window.
 //! The library's core structure revolves around:
 //! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
-//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], and [`StackLayout`].
+//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], [`StackLayout`], and [`GridLayout`].
 //! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
 
 /// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
@@ -302,13 +302,16 @@ impl Element for TextureElement {
 
 /// A wrapper element that makes any underlying [`Element`] interactive as a button.
 ///
-/// It caches the element's layout rectangle and checks for mouse button clicks.
+/// It caches the element's layout rectangle and checks for mouse clicks and keyboard hotkeys.
 ///
 /// # GSS Properties
 ///
-/// - `button.color` - The background color of the button (defaults to `BLANK` / transparent).
+/// - `bg` / `background_color` - The background color of the button (defaults to `BLANK`).
+/// - `hover_color` / `button.hover_color` - The highlight color drawn when hovered (defaults to `0xFFFFFF33`).
+/// - `disabled_color` / `disabled_bg` - The overlay/dim color drawn when disabled (defaults to `0x00000088`).
 pub struct ButtonElement<E: Element> {
     element: E,
+    disabled: bool,
     cached_rec: std::cell::Cell<Rectangle>,
 }
 
@@ -317,6 +320,7 @@ impl<E: Element> ButtonElement<E> {
     pub fn new_with_no_cached_rec(element: E) -> Self {
         Self {
             element,
+            disabled: false,
             cached_rec: std::cell::Cell::new(Rectangle {
                 x: -1000.0,
                 y: -1000.0,
@@ -326,7 +330,7 @@ impl<E: Element> ButtonElement<E> {
         }
     }
 
-    /// Creates a new `ButtonElement` wrapping the given element with valid rectangle.
+    /// Creates a new `ButtonElement` wrapping the given element with valid rectangle calculated from style.
     pub fn new(element: E, style: &Style, name: &str) -> Self {
         let e = Self::new_with_no_cached_rec(element);
         let position = e.get_position(style, name);
@@ -341,23 +345,51 @@ impl<E: Element> ButtonElement<E> {
         e
     }
 
-    /// Check if element is being hovered
-    pub fn hover(&self) -> bool {
-        check_collision_circle_rec(
-            get_virtual_mouse_position(),
-            MOUSE_CLICK_RADIUS,
-            self.cached_rec.get(),
-        )
+    /// Builder method to set the disabled state of the button.
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 
-    /// Check if element is clicked
-    pub fn click(&self) -> bool {
-        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+    /// Sets the disabled state of the button.
+    pub fn set_disabled(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
+    /// Returns `true` if the button is currently disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    /// Check if element is being hovered (returns `false` if disabled).
+    pub fn hover(&self) -> bool {
+        !self.disabled
             && check_collision_circle_rec(
                 get_virtual_mouse_position(),
                 MOUSE_CLICK_RADIUS,
                 self.cached_rec.get(),
             )
+    }
+
+    /// Check if element is clicked (returns `false` if disabled).
+    pub fn click(&self) -> bool {
+        !self.disabled
+            && is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+            && check_collision_circle_rec(
+                get_virtual_mouse_position(),
+                MOUSE_CLICK_RADIUS,
+                self.cached_rec.get(),
+            )
+    }
+
+    /// Checks if the button is triggered via mouse click OR keyboard key press.
+    ///
+    /// Returns `false` if the button is disabled.
+    pub fn click_or_key(&self, key: KeyboardKey) -> bool {
+        if self.disabled {
+            return false;
+        }
+        self.click() || is_key_pressed(key)
     }
 
     /// Returns an immutable reference to the wrapped element.
@@ -368,6 +400,11 @@ impl<E: Element> ButtonElement<E> {
     /// Returns a mutable reference to the wrapped element.
     pub fn element_mut(&mut self) -> &mut E {
         &mut self.element
+    }
+
+    /// Consumes the button and returns the inner element.
+    pub fn into_inner(self) -> E {
+        self.element
     }
 }
 
@@ -382,18 +419,54 @@ impl<E: Element> Element for ButtonElement<E> {
         };
         self.cached_rec.set(rec);
 
-        // Hover effect: draw semi-transparent background
-        if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+        // Background color if configured
+        let bg_color = get_color_field(
+            style,
+            &[name, "background_color"],
+            get_color_field(style, &[name, "bg"], BLANK),
+        );
+        if bg_color != BLANK {
+            unsafe {
+                DrawRectangleRec(rec, bg_color);
+            }
+        }
+
+        // Hover effect if enabled and mouse is over
+        if !self.disabled && check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
             let hover_color = get_color_field(
                 style,
-                &[name, "button", "hover_color"],
-                get_color(0xFFFFFF33),
+                &[name, "hover_color"],
+                get_color_field(
+                    style,
+                    &[name, "button", "hover_color"],
+                    get_color(0xFFFFFF33),
+                ),
             );
             unsafe {
                 DrawRectangleRec(rec, hover_color);
             }
         }
+
+        // Draw inner element
         self.element.draw(position, style, name);
+
+        // Disabled overlay tint if disabled
+        if self.disabled {
+            let disabled_color = get_color_field(
+                style,
+                &[name, "disabled_color"],
+                get_color_field(
+                    style,
+                    &[name, "disabled_bg"],
+                    get_color(0x00000088),
+                ),
+            );
+            if disabled_color != BLANK {
+                unsafe {
+                    DrawRectangleRec(rec, disabled_color);
+                }
+            }
+        }
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
@@ -408,6 +481,7 @@ impl<E: Element> Element for ButtonElement<E> {
         }
     }
 }
+
 
 /// A layout container that arranges its child elements sequentially in a single direction (vertical or horizontal).
 ///
@@ -536,6 +610,159 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
                 _ => height += gap * (count - 1) as f32,
             }
         }
+
+        Vector2 {
+            x: width,
+            y: height,
+        }
+    }
+}
+
+/// A 2D grid layout container that arranges child elements across rows and columns.
+///
+/// # GSS Properties
+///
+/// - `columns` - The number of columns in the grid (defaults to `2`).
+/// - `gap` - Default spacing applied between rows and columns (defaults to `0.0`).
+/// - `column_gap` - Spacing between adjacent columns (defaults to `gap` or `0.0`).
+/// - `row_gap` - Spacing between adjacent rows (defaults to `gap` or `0.0`).
+/// - `cell_width` - Explicit fixed cell width override (defaults to maximum measured child width).
+/// - `cell_height` - Explicit fixed cell height override (defaults to maximum measured child height).
+///
+/// # Child Properties
+///
+/// Child elements placed inside the grid can specify alignment inside their allocated cell:
+/// - `align` - Horizontal alignment within cell (`"center"`, `"right"`).
+/// - `valign` - Vertical alignment within cell (`"middle"`, `"center"`, `"bottom"`).
+/// - `frame` - Draws a green debug border around the child if `true`.
+pub struct GridLayout<'a, 'b> {
+    children: &'b [(&'a str, &'a dyn Element)],
+}
+
+impl<'a, 'b> GridLayout<'a, 'b> {
+    /// Creates a new `GridLayout` with the specified named child elements.
+    ///
+    /// Each child is specified as a tuple of `(selector_name, element_ref)`.
+    pub fn new(children: &'b [(&'a str, &'a dyn Element)]) -> Self {
+        Self { children }
+    }
+
+    /// Returns the slice of children elements managed by this layout.
+    pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
+        &self.children
+    }
+
+    /// Computes the effective cell dimensions `(cell_width, cell_height)` for the grid.
+    pub fn get_cell_size(&self, style: &Style, name: &str) -> Vector2 {
+        let explicit_w = style
+            .get::<f32>(&[name, "cell_width"])
+            .copied()
+            .or_else(|| style.get::<u32>(&[name, "cell_width"]).map(|&v| v as f32));
+        let explicit_h = style
+            .get::<f32>(&[name, "cell_height"])
+            .copied()
+            .or_else(|| style.get::<u32>(&[name, "cell_height"]).map(|&v| v as f32));
+
+        let mut max_w: f32 = 0.0;
+        let mut max_h: f32 = 0.0;
+
+        if explicit_w.is_none() || explicit_h.is_none() {
+            for (child_name, child) in self.children {
+                let size = child.measure(style, child_name);
+                max_w = max_w.max(size.x);
+                max_h = max_h.max(size.y);
+            }
+        }
+
+        Vector2 {
+            x: explicit_w.unwrap_or(max_w),
+            y: explicit_h.unwrap_or(max_h),
+        }
+    }
+}
+
+impl<'a, 'b> Element for GridLayout<'a, 'b> {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        if self.children.is_empty() {
+            return;
+        }
+
+        let columns = get_usize_field(style, &[name, "columns"], 2).max(1);
+        let default_gap = get_f32_field(style, &[name, "gap"], 0.0);
+        let col_gap = get_f32_field(style, &[name, "column_gap"], default_gap);
+        let row_gap = get_f32_field(style, &[name, "row_gap"], default_gap);
+        let cell_size = self.get_cell_size(style, name);
+
+        for (i, (child_name, child)) in self.children.iter().enumerate() {
+            let col = (i % columns) as f32;
+            let row = (i / columns) as f32;
+
+            let child_size = child.measure(style, child_name);
+            let mut child_x = position.x + col * (cell_size.x + col_gap);
+            let mut child_y = position.y + row * (cell_size.y + row_gap);
+
+            // Optional child alignment within cell
+            if let Some(align) = style.get::<String>(&[child_name, "align"]) {
+                match align.as_str() {
+                    "center" => child_x += (cell_size.x - child_size.x) / 2.0,
+                    "right" => child_x += cell_size.x - child_size.x,
+                    _ => {}
+                }
+            }
+
+            if let Some(valign) = style.get::<String>(&[child_name, "valign"]) {
+                match valign.as_str() {
+                    "middle" | "center" => child_y += (cell_size.y - child_size.y) / 2.0,
+                    "bottom" => child_y += cell_size.y - child_size.y,
+                    _ => {}
+                }
+            }
+
+            let child_pos = Vector2 {
+                x: child_x,
+                y: child_y,
+            };
+
+            child.draw(child_pos, style, child_name);
+
+            if get_bool_field(style, child_name, "frame", false) {
+                let rec = Rectangle {
+                    x: child_pos.x,
+                    y: child_pos.y,
+                    width: child_size.x,
+                    height: child_size.y,
+                };
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        if self.children.is_empty() {
+            return Vector2::zero();
+        }
+
+        let columns = get_usize_field(style, &[name, "columns"], 2).max(1);
+        let default_gap = get_f32_field(style, &[name, "gap"], 0.0);
+        let col_gap = get_f32_field(style, &[name, "column_gap"], default_gap);
+        let row_gap = get_f32_field(style, &[name, "row_gap"], default_gap);
+        let cell_size = self.get_cell_size(style, name);
+
+        let total_items = self.children.len();
+        let cols_used = total_items.min(columns) as f32;
+        let rows_used = ((total_items + columns - 1) / columns) as f32;
+
+        let width = if cols_used > 0.0 {
+            cols_used * cell_size.x + (cols_used - 1.0) * col_gap
+        } else {
+            0.0
+        };
+
+        let height = if rows_used > 0.0 {
+            rows_used * cell_size.y + (rows_used - 1.0) * row_gap
+        } else {
+            0.0
+        };
 
         Vector2 {
             x: width,
@@ -1251,4 +1478,224 @@ mod tests {
             assert_eq!(size.y, 20.0);
         }
     }
+
+    #[test]
+    fn test_style_get_usize_field() {
+        let style = parse_str(
+            r#"
+            grid_config = {
+                cols_int = 4,
+                cols_float = 3.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(get_usize_field(&style, &["grid_config", "cols_int"], 2), 4);
+        assert_eq!(get_usize_field(&style, &["grid_config", "cols_float"], 2), 3);
+        assert_eq!(get_usize_field(&style, &["grid_config", "missing"], 2), 2);
+    }
+
+    #[test]
+    fn test_button_element_disabled_state() {
+        let child = MockElement::new(60.0, 30.0);
+        let mut btn = ButtonElement::new_with_no_cached_rec(child);
+
+        assert!(!btn.is_disabled());
+
+        btn.set_disabled(true);
+        assert!(btn.is_disabled());
+
+        btn.set_disabled(false);
+        assert!(!btn.is_disabled());
+
+        let btn_disabled = btn.with_disabled(true);
+        assert!(btn_disabled.is_disabled());
+
+        let inner = btn_disabled.into_inner();
+        assert_eq!(inner.size.x, 60.0);
+    }
+
+    #[test]
+    fn test_grid_layout_measure_basic() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                gap = 10.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(50.0, 30.0);
+        let child2 = MockElement::new(60.0, 40.0);
+        let child3 = MockElement::new(40.0, 20.0);
+        let child4 = MockElement::new(55.0, 35.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+            ("child4", &child4),
+        ];
+
+        let grid = GridLayout::new(children);
+        let size = grid.measure(&style, "grid");
+
+        // Cell width = max(50, 60, 40, 55) = 60.0
+        // Cell height = max(30, 40, 20, 35) = 40.0
+        // 4 items in 2 columns => 2 cols, 2 rows
+        // Width: 2 * 60 + 1 * 10 = 130.0
+        // Height: 2 * 40 + 1 * 10 = 90.0
+        assert_eq!(size.x, 130.0);
+        assert_eq!(size.y, 90.0);
+    }
+
+    #[test]
+    fn test_grid_layout_measure_with_cell_overrides() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 3,
+                cell_width = 100.0,
+                cell_height = 50.0,
+                column_gap = 12.0,
+                row_gap = 8.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let c1 = MockElement::new(20.0, 20.0);
+        let c2 = MockElement::new(20.0, 20.0);
+        let c3 = MockElement::new(20.0, 20.0);
+        let c4 = MockElement::new(20.0, 20.0);
+        let c5 = MockElement::new(20.0, 20.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("c1", &c1),
+            ("c2", &c2),
+            ("c3", &c3),
+            ("c4", &c4),
+            ("c5", &c5),
+        ];
+
+        let grid = GridLayout::new(children);
+        let size = grid.measure(&style, "grid");
+
+        // 5 items in 3 columns => 3 cols, 2 rows
+        // Width: 3 * 100 + 2 * 12 = 324.0
+        // Height: 2 * 50 + 1 * 8 = 108.0
+        assert_eq!(size.x, 324.0);
+        assert_eq!(size.y, 108.0);
+    }
+
+    #[test]
+    fn test_grid_layout_positioning_and_alignment() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                column_gap = 20.0,
+                row_gap = 10.0,
+                cell_width = 100.0,
+                cell_height = 60.0,
+            },
+            child1 = {},
+            child2 = {
+                align = "center",
+            },
+            child3 = {
+                valign = "center",
+            },
+            child4 = {
+                align = "right",
+                valign = "bottom",
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(40.0, 20.0);
+        let child2 = MockElement::new(40.0, 20.0);
+        let child3 = MockElement::new(40.0, 20.0);
+        let child4 = MockElement::new(40.0, 20.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+            ("child4", &child4),
+        ];
+
+        let grid = GridLayout::new(children);
+        let base_pos = Vector2::new(50.0, 50.0);
+        grid.draw(base_pos, &style, "grid");
+
+        let pos1 = child1.draw_positions.borrow()[0];
+        let pos2 = child2.draw_positions.borrow()[0];
+        let pos3 = child3.draw_positions.borrow()[0];
+        let pos4 = child4.draw_positions.borrow()[0];
+
+        // child1 (row 0, col 0): base (50, 50)
+        assert_eq!(pos1.x, 50.0);
+        assert_eq!(pos1.y, 50.0);
+
+        // child2 (row 0, col 1): col 1 x = 50 + 100 + 20 = 170.0; align center: 170 + (100 - 40)/2 = 200.0, y = 50.0
+        assert_eq!(pos2.x, 200.0);
+        assert_eq!(pos2.y, 50.0);
+
+        // child3 (row 1, col 0): col 0 x = 50.0; row 1 y = 50 + 60 + 10 = 120.0; valign center: 120 + (60 - 20)/2 = 140.0
+        assert_eq!(pos3.x, 50.0);
+        assert_eq!(pos3.y, 140.0);
+
+        // child4 (row 1, col 1): col 1 x = 170.0; align right: 170 + 100 - 40 = 230.0; row 1 y = 120.0; valign bottom: 120 + 60 - 20 = 160.0
+        assert_eq!(pos4.x, 230.0);
+        assert_eq!(pos4.y, 160.0);
+    }
+
+    #[test]
+    fn test_grid_layout_edge_cases() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                gap = 5.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        // 0 children
+        {
+            let children: &[(&str, &dyn Element)] = &[];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            assert_eq!(size.x, 0.0);
+            assert_eq!(size.y, 0.0);
+        }
+
+        // 1 child
+        {
+            let c1 = MockElement::new(30.0, 25.0);
+            let children: &[(&str, &dyn Element)] = &[("c1", &c1)];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            assert_eq!(size.x, 30.0);
+            assert_eq!(size.y, 25.0);
+        }
+
+        // 3 children in 2 cols (odd items)
+        {
+            let c1 = MockElement::new(30.0, 20.0);
+            let c2 = MockElement::new(30.0, 20.0);
+            let c3 = MockElement::new(30.0, 20.0);
+            let children: &[(&str, &dyn Element)] = &[("c1", &c1), ("c2", &c2), ("c3", &c3)];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            // 2 cols: 2 * 30 + 5 = 65.0
+            // 2 rows: 2 * 20 + 5 = 45.0
+            assert_eq!(size.x, 65.0);
+            assert_eq!(size.y, 45.0);
+        }
+    }
 }
+
