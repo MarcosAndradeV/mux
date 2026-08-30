@@ -127,10 +127,11 @@ pub fn get_viewport_rects() -> (raylib::Rectangle, raylib::Rectangle) {
 }
 
 pub fn map_color(string: &str) -> raylib::Color {
-    match string {
-        "light gray" => raylib::LIGHTGRAY,
-        "gray" => raylib::GRAY,
-        "dark gray" => raylib::DARKGRAY,
+    let normalized = string.to_lowercase().replace(['_', '-'], " ");
+    match normalized.trim() {
+        "light gray" | "lightgray" => raylib::LIGHTGRAY,
+        "gray" | "grey" => raylib::GRAY,
+        "dark gray" | "darkgray" | "dark grey" | "darkgrey" => raylib::DARKGRAY,
         "yellow" => raylib::YELLOW,
         "gold" => raylib::GOLD,
         "orange" => raylib::ORANGE,
@@ -139,33 +140,38 @@ pub fn map_color(string: &str) -> raylib::Color {
         "maroon" => raylib::MAROON,
         "green" => raylib::GREEN,
         "lime" => raylib::LIME,
-        "dark green" => raylib::DARKGREEN,
-        "sky blue" => raylib::SKYBLUE,
+        "dark green" | "darkgreen" => raylib::DARKGREEN,
+        "sky blue" | "skyblue" => raylib::SKYBLUE,
         "blue" => raylib::BLUE,
-        "dark blue" => raylib::DARKBLUE,
+        "dark blue" | "darkblue" => raylib::DARKBLUE,
         "purple" => raylib::PURPLE,
         "violet" => raylib::VIOLET,
-        "dark purple" => raylib::DARKPURPLE,
+        "dark purple" | "darkpurple" => raylib::DARKPURPLE,
         "beige" => raylib::BEIGE,
         "brown" => raylib::BROWN,
-        "dark brown" => raylib::DARKBROWN,
+        "dark brown" | "darkbrown" => raylib::DARKBROWN,
         "white" => raylib::WHITE,
         "black" => raylib::BLACK,
         "magenta" => raylib::MAGENTA,
+        "blank" | "transparent" => raylib::BLANK,
         _ => raylib::BLANK,
     }
 }
 
+
 /// Retrieves a color property from the stylesheet [`Style`] at the given path segment slice (e.g., `&["button", "color"]`).
 ///
-/// It supports reading color values defined as string names (e.g. `"red"`, `"dark green"`) or
-/// hex codes as a `u32` value (e.g. `0xFF00FFFF`). If the color cannot be found or parsed,
-/// the `default` color is returned.
+/// It supports reading color values defined as string names (e.g. `"red"`, `"dark green"`),
+/// hex integers (e.g. `0xFF00FFFF`), or references. If not found or invalid, `default` is returned.
 pub fn get_color_field(obj: &gss::Object, path: &[&str], default: raylib::Color) -> raylib::Color {
     if let Some(string) = obj.get::<String>(path) {
-        map_color(string)
-    } else if let Some(hex) = obj.get::<u32>(path) {
-        raylib::get_color(*hex)
+        let mapped = map_color(string);
+        if mapped != raylib::BLANK || string.eq_ignore_ascii_case("blank") {
+            return mapped;
+        }
+    }
+    if let Some(&hex) = obj.get::<u32>(path) {
+        raylib::get_color(hex)
     } else {
         default
     }
@@ -175,21 +181,19 @@ pub fn get_color_field(obj: &gss::Object, path: &[&str], default: raylib::Color)
 ///
 /// Returns `default` if the field is not present.
 pub fn get_bool_field(obj: &gss::Object, name: &str, field: &str, default: bool) -> bool {
-    if let Some(&val) = obj.get::<bool>(&[name, field]) {
-        val
-    } else {
-        default
-    }
+    obj.get::<bool>(&[name, field]).copied().unwrap_or(default)
 }
 
 /// Retrieves a float (`f32`) property from the stylesheet [`Style`] at the given path.
 ///
-/// It supports reading direct float values or converting unsigned integers (`u32`) to floats.
-/// Returns `default` if the field is not present or cannot be retrieved as `f32` or `u32`.
+/// Automatically handles float literals, percentage values (e.g. `89%` -> `0.89`), and integers (`u32`).
+/// Returns `default` if the field is not present or cannot be parsed as a float.
 pub fn get_f32_field(obj: &gss::Object, path: &[&str], default: f32) -> f32 {
     if let Some(&val) = obj.get::<f32>(path) {
         val
     } else if let Some(&val) = obj.get::<u32>(path) {
+        val as f32
+    } else if let Some(&val) = obj.get::<i32>(path) {
         val as f32
     } else {
         default
@@ -198,30 +202,31 @@ pub fn get_f32_field(obj: &gss::Object, path: &[&str], default: f32) -> f32 {
 
 /// Retrieves a relative coordinate or float property from the stylesheet [`Style`] at the given path.
 ///
-/// If the retrieved value is an `f32`, it is scaled by the provided `scale` factor.
-/// If the value is a direct `u32`, it is returned raw without scaling.
+/// - If the retrieved value is a percentage (e.g. `80%`) or float (e.g. `0.8`), it is scaled by `scale`.
+/// - If the retrieved value is an exact integer literal (e.g. `120`), it is treated as absolute pixels.
 /// Returns `default` if the field is not present.
 pub fn get_relative_field(obj: &gss::Object, path: &[&str], scale: f32, default: f32) -> f32 {
-    if let Some(&val) = obj.get::<f32>(path) {
-        val * scale
-    } else if let Some(&val) = obj.get::<u32>(path) {
+    if let Some(&val) = obj.get::<u32>(path) {
         val as f32
+    } else if let Some(&val) = obj.get::<i32>(path) {
+        val as f32
+    } else if let Some(&val) = obj.get::<f32>(path) {
+        val * scale
     } else {
         default
     }
 }
 
+/// Retrieves a string property from the stylesheet [`Style`] at the given path.
+///
+/// Returns `default` if the field is not present.
 pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> String {
-    if let Some(val) = gss.get::<String>(path) {
-        val.clone()
-    } else {
-        default.to_string()
-    }
+    gss.get::<String>(path).cloned().unwrap_or_else(|| default.to_string())
 }
 
 /// Retrieves a `usize` property from the stylesheet [`Style`] at the given path.
 ///
-/// It supports reading direct integer (`usize`, `u32`, `i32`) or float (`f32`) values converted to `usize`.
+/// Automatically converts integer literals and floats into `usize`.
 /// Returns `default` if the field is not present or cannot be parsed.
 pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usize {
     if let Some(&val) = obj.get::<usize>(path) {
@@ -236,6 +241,8 @@ pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usiz
         default
     }
 }
+
+
 
 
 #[cfg(test)]
@@ -270,4 +277,46 @@ mod tests {
         assert_eq!(dest.width, 1440.0);
         assert_eq!(dest.height, 1080.0);
     }
+
+    #[test]
+    fn test_gss_helpers() {
+        let style = gss::parse_str(
+            r#"
+            base_col = "gold",
+            btn = {
+                color = base_col,
+                hex_color = 0xFF00FFFF,
+                scale = 50%,
+                pixel_offset = 150,
+                width = 300.5,
+                count = 4,
+                active = true,
+                title = "Fireball",
+            },
+            "#,
+        )
+        .unwrap();
+
+        // Color resolution (symbol reference and hex)
+        assert_eq!(get_color_field(&style, &["btn", "color"], raylib::WHITE), raylib::GOLD);
+        assert_eq!(get_color_field(&style, &["btn", "hex_color"], raylib::WHITE), raylib::get_color(0xFF00FFFF));
+        assert_eq!(get_color_field(&style, &["btn", "missing"], raylib::RED), raylib::RED);
+
+        // Boolean resolution
+        assert!(get_bool_field(&style, "btn", "active", false));
+        assert!(!get_bool_field(&style, "btn", "missing", false));
+
+        // Float resolution (exact float and converted int)
+        assert_eq!(get_f32_field(&style, &["btn", "width"], 0.0), 300.5);
+        assert_eq!(get_f32_field(&style, &["btn", "count"], 0.0), 4.0);
+
+        // Relative resolution (Percentage 50% * 800.0 = 400.0, Absolute pixels = 150.0)
+        assert_eq!(get_relative_field(&style, &["btn", "scale"], 800.0, 0.0), 400.0);
+        assert_eq!(get_relative_field(&style, &["btn", "pixel_offset"], 800.0, 0.0), 150.0);
+
+        // String and usize resolution
+        assert_eq!(get_string_field(&style, &["btn", "title"], "Default"), "Fireball");
+        assert_eq!(get_usize_field(&style, &["btn", "count"], 1), 4);
+    }
 }
+
