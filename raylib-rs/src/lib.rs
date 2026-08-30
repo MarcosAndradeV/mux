@@ -237,6 +237,14 @@ pub fn check_collision_circle_rec(center: Vector2, radius: f32, rec: Rectangle) 
     unsafe { CheckCollisionCircleRec(center, radius, rec) }
 }
 
+pub fn check_collision_recs(rec1: Rectangle, rec2: Rectangle) -> bool {
+    unsafe { CheckCollisionRecs(rec1, rec2) }
+}
+
+pub fn check_collision_point_rec(point: Vector2, rec: Rectangle) -> bool {
+    unsafe { CheckCollisionPointRec(point, rec) }
+}
+
 pub fn is_texture_valid(texture: Texture2D) -> bool {
     unsafe { IsTextureValid(texture) }
 }

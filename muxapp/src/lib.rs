@@ -27,13 +27,12 @@
 
 use std::path::{Path, PathBuf};
 
-use muxutils::gss::{load_gss_from_file, Gss};
+use muxutils::gss::{Gss, load_gss_from_file};
 use notify::Watcher;
 
 pub use muxui;
 
 use muxui::*;
-
 
 struct Manager<Context> {
     update: Box<dyn Fn(&mut Context, &Style) + 'static>,
@@ -44,6 +43,7 @@ struct Manager<Context> {
     context: Context,
     virtual_width: i32,
     virtual_height: i32,
+    responsive: bool,
 }
 
 /// The main application runner that initializes the Raylib window, sets up event loops,
@@ -57,6 +57,7 @@ pub struct App<Context> {
     height: i32,
     virtual_width: i32,
     virtual_height: i32,
+    responsive: bool,
     title: String,
     update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
     load: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
@@ -86,6 +87,7 @@ impl<Context> App<Context> {
             height,
             virtual_width: width,
             virtual_height: height,
+            responsive: false,
             title: title.into(),
             update: None,
             load: None,
@@ -98,6 +100,22 @@ impl<Context> App<Context> {
 }
 
 impl<Context> App<Context> {
+    /// Enables or disables dynamic responsive screen resizing.
+    ///
+    /// When responsive mode is enabled (`true`), the internal virtual render canvas dynamically resizes
+    /// to match the physical window resolution whenever the window is resized.
+    ///
+    /// When responsive mode is disabled (`false`, the default), the virtual resolution remains fixed,
+    /// and window resizing maintains the aspect ratio with letterboxing/pillarboxing.
+    ///
+    /// # Arguments
+    ///
+    /// * `responsive` - `true` to enable dynamic screen sizing, `false` for fixed letterboxed virtual resolution.
+    pub fn set_responsive(mut self, responsive: bool) -> Self {
+        self.responsive = responsive;
+        self
+    }
+
     /// Sets the fixed internal virtual resolution for rendering offscreen textures.
     ///
     /// # Arguments
@@ -172,6 +190,7 @@ impl<Context> App<Context> {
             height,
             virtual_width,
             virtual_height,
+            responsive,
             title,
             update,
             load,
@@ -204,6 +223,7 @@ impl<Context> App<Context> {
             context: init_context(),
             virtual_width,
             virtual_height,
+            responsive,
         }
     }
 
@@ -221,12 +241,13 @@ impl<Context> App<Context> {
             fps,
             audio_device,
             mut context,
-            virtual_width,
-            virtual_height,
+            mut virtual_width,
+            mut virtual_height,
+            responsive,
         } = self.build();
         set_target_fps(fps);
 
-        let target = load_render_texture(virtual_width, virtual_height);
+        let mut target = load_render_texture(virtual_width, virtual_height);
 
         let (tx, rx) = std::sync::mpsc::channel();
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
@@ -272,13 +293,32 @@ impl<Context> App<Context> {
         }
 
         while !window_should_close() {
-            let window_w = get_screen_width() as f32;
-            let window_h = get_screen_height() as f32;
+            let window_w = get_screen_width();
+            let window_h = get_screen_height();
+
+            if responsive {
+                let target_w = window_w.max(1);
+                let target_h = window_h.max(1);
+                if target_w != virtual_width || target_h != virtual_height {
+                    virtual_width = target_w;
+                    virtual_height = target_h;
+                    if is_render_texture_valid(target) {
+                        unload_render_texture(target);
+                    }
+                    target = load_render_texture(virtual_width, virtual_height);
+                    log_info!(
+                        "MUX: Window resized, updated virtual resolution to {}x{}",
+                        virtual_width,
+                        virtual_height
+                    );
+                }
+            }
+
             muxutils::set_viewport(
                 virtual_width as f32,
                 virtual_height as f32,
-                window_w,
-                window_h,
+                window_w as f32,
+                window_h as f32,
             );
 
             if is_key_pressed(KEY_F5) {

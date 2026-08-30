@@ -126,6 +126,22 @@ pub fn get_viewport_rects() -> (raylib::Rectangle, raylib::Rectangle) {
     (src, dest)
 }
 
+/// Retrieves the virtual screen bounding rectangle as a [`raylib::Rectangle`].
+pub fn get_virtual_screen_rect() -> raylib::Rectangle {
+    let vp = get_viewport_state();
+    raylib::Rectangle::new(0.0, 0.0, vp.virtual_width, vp.virtual_height)
+}
+
+/// Checks if a given rectangle intersects the visible virtual screen bounds.
+pub fn is_rect_on_screen(rec: raylib::Rectangle) -> bool {
+    let screen = get_virtual_screen_rect();
+    if rec.width <= 0.0 || rec.height <= 0.0 {
+        rec.x >= 0.0 && rec.x <= screen.width && rec.y >= 0.0 && rec.y <= screen.height
+    } else {
+        raylib::check_collision_recs(rec, screen)
+    }
+}
+
 pub fn map_color(string: &str) -> raylib::Color {
     let normalized = string.to_lowercase().replace(['_', '-'], " ");
     match normalized.trim() {
@@ -317,6 +333,34 @@ mod tests {
         // String and usize resolution
         assert_eq!(get_string_field(&style, &["btn", "title"], "Default"), "Fireball");
         assert_eq!(get_usize_field(&style, &["btn", "count"], 1), 4);
+    }
+
+    #[test]
+    fn test_responsive_viewport_and_culling() {
+        set_viewport(1280.0, 720.0, 1280.0, 720.0);
+        let vp = get_viewport_state();
+        assert_eq!(vp.scale, 1.0);
+        assert_eq!(vp.offset_x, 0.0);
+        assert_eq!(vp.offset_y, 0.0);
+        assert_eq!(vp.viewport_width, 1280.0);
+        assert_eq!(vp.viewport_height, 720.0);
+
+        let screen_rec = get_virtual_screen_rect();
+        assert_eq!(screen_rec.width, 1280.0);
+        assert_eq!(screen_rec.height, 720.0);
+
+        // Within screen
+        assert!(is_rect_on_screen(raylib::Rectangle::new(100.0, 100.0, 50.0, 50.0)));
+        // Partially intersecting screen
+        assert!(is_rect_on_screen(raylib::Rectangle::new(-20.0, 100.0, 50.0, 50.0)));
+        // Outside screen (right)
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(1500.0, 100.0, 50.0, 50.0)));
+        // Outside screen (above)
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(100.0, -100.0, 50.0, 50.0)));
+        // Point/zero-sized rect inside screen
+        assert!(is_rect_on_screen(raylib::Rectangle::new(500.0, 500.0, 0.0, 0.0)));
+        // Point/zero-sized rect outside screen
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(2000.0, 500.0, 0.0, 0.0)));
     }
 }
 

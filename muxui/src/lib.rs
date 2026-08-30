@@ -69,10 +69,13 @@ pub trait Element {
     /// * `style` - The stylesheet context.
     /// * `name` - The unique style selector name.
     fn place(&self, style: &Style, name: &str) {
-        let position = self.get_position(style, name);
-        self.draw(position, style, name);
-        if get_bool_field(style, name, "frame", false) {
-            draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
+        let rec = self.get_rec(style, name);
+        if is_rect_on_screen(rec) {
+            let position = Vector2 { x: rec.x, y: rec.y };
+            self.draw(position, style, name);
+            if get_bool_field(style, name, "frame", false) {
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
         }
     }
 
@@ -563,16 +566,19 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
                 }
             };
 
-            child.draw(child_pos, style, child_name);
+            let rec = Rectangle {
+                x: child_pos.x,
+                y: child_pos.y,
+                width: child_size.x,
+                height: child_size.y,
+            };
 
-            if get_bool_field(style, child_name, "frame", false) {
-                let rec = Rectangle {
-                    x: child_pos.x,
-                    y: child_pos.y,
-                    width: child_size.x,
-                    height: child_size.y,
-                };
-                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            if is_rect_on_screen(rec) {
+                child.draw(child_pos, style, child_name);
+
+                if get_bool_field(style, child_name, "frame", false) {
+                    draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+                }
             }
         }
     }
@@ -723,16 +729,19 @@ impl<'a, 'b> Element for GridLayout<'a, 'b> {
                 y: child_y,
             };
 
-            child.draw(child_pos, style, child_name);
+            let rec = Rectangle {
+                x: child_pos.x,
+                y: child_pos.y,
+                width: child_size.x,
+                height: child_size.y,
+            };
 
-            if get_bool_field(style, child_name, "frame", false) {
-                let rec = Rectangle {
-                    x: child_pos.x,
-                    y: child_pos.y,
-                    width: child_size.x,
-                    height: child_size.y,
-                };
-                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            if is_rect_on_screen(rec) {
+                child.draw(child_pos, style, child_name);
+
+                if get_bool_field(style, child_name, "frame", false) {
+                    draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+                }
             }
         }
     }
@@ -1696,6 +1705,32 @@ mod tests {
             assert_eq!(size.x, 65.0);
             assert_eq!(size.y, 45.0);
         }
+    }
+
+    #[test]
+    fn test_element_culling_on_and_off_screen() {
+        set_viewport(800.0, 600.0, 800.0, 600.0);
+        let style = parse_str(
+            r#"
+            visible_elem = {
+                left = 100,
+                top = 100,
+            },
+            offscreen_elem = {
+                left = 2000,
+                top = 2000,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let elem_on = MockElement::new(50.0, 50.0);
+        elem_on.place(&style, "visible_elem");
+        assert_eq!(elem_on.draw_positions.borrow().len(), 1);
+
+        let elem_off = MockElement::new(50.0, 50.0);
+        elem_off.place(&style, "offscreen_elem");
+        assert_eq!(elem_off.draw_positions.borrow().len(), 0);
     }
 }
 
