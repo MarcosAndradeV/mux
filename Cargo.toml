@@ -2,12 +2,9 @@
 
 members = [
     "muxui",
-    "mux-point-and-click-engine",
     "muxapp",
     "muxutils",
     "raylib-rs",
-    "GSS",
-    "text-mux",
 ]
 
 resolver = "3"

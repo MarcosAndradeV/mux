@@ -3,11 +3,7 @@ name = "muxapp"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-point-and-click = ["dep:mux-point-and-click-engine", "muxui/point-and-click"]
-
 [dependencies]
 notify = "8.2.0"
 muxui = { path = "../muxui", version = "0.1.0" }
 muxutils = { path = "../muxutils", version = "0.1.0" }
-mux-point-and-click-engine = { path = "../mux-point-and-click-engine", version = "0.1.0", optional = true }

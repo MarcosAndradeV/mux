@@ -4,7 +4,6 @@
 //! A lightweight library for building interactive applications using Raylib and Graph Style Sheets (GSS).
 //!
 //! - [`App`]: The main container driving the application window and render loop.
-//! - [`Engine`]: Trait for pluggable game engine backends.
 //!
 //! ## Basic Example
 //!
@@ -29,89 +28,20 @@
 use std::path::{Path, PathBuf};
 
 use muxutils::gss::{load_gss_from_file, Gss};
-#[cfg(feature = "point-and-click")]
-use muxutils::gss::Object;
 use notify::Watcher;
 
-#[cfg(feature = "point-and-click")]
-pub use mux_point_and_click_engine;
 pub use muxui;
 
 use muxui::*;
 
-/// Interface for pluggable backend game engines in `muxapp`.
-pub trait Engine {
-    /// Optional lifecycle method called on every frame update before the user's `on_update` callback.
-    fn update(&mut self, _style: &Style) {}
 
-    /// Optional pre-render hook executed inside the offscreen texture pass before `on_update`.
-    fn pre_render(&self, _style: &Style) {}
-}
-
-/// Default unit implementation for engine-less applications.
-impl Engine for () {}
-
-#[cfg(feature = "point-and-click")]
-impl Engine for mux_point_and_click_engine::EngineController {
-    fn pre_render(&self, style: &Style) {
-        let view = self.current_view(style);
-        let scene_style_path = ["scenes", &view.scene_id];
-        if style.get::<Object>(&scene_style_path).is_some() {
-            let bg_el = TextureElement::new(&view.background_texture);
-            let bg_path = format!("scenes.{}.background", view.scene_id);
-            bg_el.place(style, &bg_path);
-        } else {
-            let texture = get_cached_texture(&view.background_texture);
-            if is_texture_valid(texture) {
-                draw_texture_ex(texture, Vector2::zero(), 0.0, 1.0, WHITE);
-            }
-        }
-    }
-}
-
-/// The application context wrapping both the user-defined state and the backend game engine.
-///
-/// It acts as the primary interface for callbacks to inspect or mutate both
-/// the custom application state and the active game engine controller.
-pub struct Context<State, E = ()> {
-    state: State,
-    engine: E,
-}
-
-impl<State, E> Context<State, E> {
-    /// Creates a new `Context` wrapping the user state and engine backend.
-    pub fn new(state: State, engine: E) -> Self {
-        Self { state, engine }
-    }
-
-    /// Returns a shared reference to the user-defined application state.
-    pub fn state(&self) -> &State {
-        &self.state
-    }
-
-    /// Returns a mutable reference to the user-defined application state.
-    pub fn state_mut(&mut self) -> &mut State {
-        &mut self.state
-    }
-
-    /// Returns a shared reference to the underlying engine controller.
-    pub fn engine(&self) -> &E {
-        &self.engine
-    }
-
-    /// Returns a mutable reference to the underlying engine controller.
-    pub fn engine_mut(&mut self) -> &mut E {
-        &mut self.engine
-    }
-}
-
-struct Manager<AppState, E> {
-    update: Box<dyn Fn(&mut Context<AppState, E>, &Style) + 'static>,
-    load: Box<dyn Fn(&mut Context<AppState, E>, &Style) + 'static>,
+struct Manager<Context> {
+    update: Box<dyn Fn(&mut Context, &Style) + 'static>,
+    load: Box<dyn Fn(&mut Context, &Style) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
-    context: Context<AppState, E>,
+    context: Context,
     virtual_width: i32,
     virtual_height: i32,
 }
@@ -121,58 +51,35 @@ struct Manager<AppState, E> {
 ///
 /// # Type Parameters
 ///
-/// * `AppState` - The application-defined state type passed to callbacks.
-/// * `E` - The backend engine type (defaults to `()` for engine-less applications).
-pub struct App<AppState, E = ()> {
+/// * `Context` - The application-defined context type passed to callbacks.
+pub struct App<Context> {
     width: i32,
     height: i32,
     virtual_width: i32,
     virtual_height: i32,
     title: String,
-    update: Option<Box<dyn Fn(&mut Context<AppState, E>, &Style) + 'static>>,
-    load: Option<Box<dyn Fn(&mut Context<AppState, E>, &Style) + 'static>>,
+    update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
+    load: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
-    init_state: Box<dyn FnOnce() -> AppState + 'static>,
-    engine: E,
+    init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
-impl<AppState> App<AppState, ()> {
-    /// Initializes a new engine-less [`App`] instance with the specified window dimensions, title, and initial context.
+impl<Context> App<Context> {
+    /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
     ///
     /// # Arguments
     ///
     /// * `width` - The width of the application window in pixels.
     /// * `height` - The height of the application window in pixels.
     /// * `title` - The title of the application window.
-    /// * `init_state` - A closure that generates the initial application-defined state.
-    pub fn init<F: FnOnce() -> AppState + 'static>(
+    /// * `init_context` - A closure that generates the initial application-defined context.
+    pub fn init<F: FnOnce() -> Context + 'static>(
         width: i32,
         height: i32,
         title: impl Into<String>,
-        init_state: F,
-    ) -> Self {
-        Self::with_engine(width, height, title, init_state, ())
-    }
-}
-
-impl<AppState, E: Engine + 'static> App<AppState, E> {
-    /// Initializes a new [`App`] instance with a custom backend engine implementation.
-    ///
-    /// # Arguments
-    ///
-    /// * `width` - The width of the application window in pixels.
-    /// * `height` - The height of the application window in pixels.
-    /// * `title` - The title of the application window.
-    /// * `init_state` - A closure that generates the initial application-defined state.
-    /// * `engine` - The backend engine instance implementing [`Engine`].
-    pub fn with_engine<F: FnOnce() -> AppState + 'static>(
-        width: i32,
-        height: i32,
-        title: impl Into<String>,
-        init_state: F,
-        engine: E,
+        init_context: F,
     ) -> Self {
         Self {
             width,
@@ -185,11 +92,12 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
             style_file: None,
             fps: muxutils::DEFAULT_FPS,
             audio_device: false,
-            init_state: Box::new(init_state),
-            engine,
+            init_context: Box::new(init_context),
         }
     }
+}
 
+impl<Context> App<Context> {
     /// Sets the fixed internal virtual resolution for rendering offscreen textures.
     ///
     /// # Arguments
@@ -218,7 +126,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_update<F: Fn(&mut Context<AppState, E>, &Style) + 'static>(mut self, f: F) -> Self {
+    pub fn on_update<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
         self
     }
@@ -230,7 +138,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_load<F: Fn(&mut Context<AppState, E>, &Style) + 'static>(mut self, f: F) -> Self {
+    pub fn on_load<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.load = Some(Box::new(f));
         self
     }
@@ -258,7 +166,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
         self
     }
 
-    fn build(self) -> Manager<AppState, E> {
+    fn build(self) -> Manager<Context> {
         let Self {
             width,
             height,
@@ -270,8 +178,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
             style_file,
             fps,
             audio_device,
-            init_state,
-            engine,
+            init_context,
         } = self;
         log_info!(
             "MUX: Initializing window: {}x{} (Virtual: {}x{}) - \"{}\"",
@@ -294,7 +201,7 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
             style_file,
             fps,
             audio_device,
-            context: Context::new(init_state(), engine),
+            context: init_context(),
             virtual_width,
             virtual_height,
         }
@@ -389,14 +296,8 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
                 load(&mut context, &style);
             }
 
-            // Execute backend engine update hook
-            context.engine.update(&style);
-
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
-
-            // Execute backend engine pre-render hook (e.g. background rendering)
-            context.engine.pre_render(&style);
 
             update(&mut context, &style);
             end_texture_mode();
@@ -425,40 +326,6 @@ impl<AppState, E: Engine + 'static> App<AppState, E> {
     }
 }
 
-#[cfg(feature = "point-and-click")]
-impl<AppState> App<AppState, mux_point_and_click_engine::EngineController> {
-    /// Initializes a new [`App`] instance configured with the point-and-click engine backend (`EngineController`).
-    pub fn init_point_and_click<F: FnOnce() -> AppState + 'static>(
-        width: i32,
-        height: i32,
-        title: impl Into<String>,
-        init_state: F,
-    ) -> Self {
-        Self::with_engine(
-            width,
-            height,
-            title,
-            init_state,
-            mux_point_and_click_engine::EngineController::new(String::new()),
-        )
-    }
-
-    /// Sets the initial scene for the point-and-click engine.
-    pub fn set_initial_scene(mut self, initial_scene: impl ToString) -> Self {
-        self.engine = mux_point_and_click_engine::EngineController::new(initial_scene.to_string());
-        self
-    }
-
-    /// Set an optional hook to run custom script triggers in the point-and-click engine.
-    pub fn set_script_hook<F>(mut self, hook: F) -> Self
-    where
-        F: Fn(&mut mux_point_and_click_engine::GameState, &str) -> Option<String> + 'static,
-    {
-        self.engine.set_script_hook(hook);
-        self
-    }
-}
-
 fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> Gss {
     if let Some(style_file) = style_file.as_ref() {
         match load_gss_from_file(style_file) {
@@ -479,50 +346,4 @@ fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> 
         }
     }
     fallback
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct TestState {
-        score: u32,
-    }
-
-    struct CustomEngine {
-        updated: bool,
-    }
-
-    impl Engine for CustomEngine {
-        fn update(&mut self, _style: &Style) {
-            self.updated = true;
-        }
-
-        fn pre_render(&self, _style: &Style) {
-            // custom render hook
-        }
-    }
-
-    #[test]
-    fn test_unit_engine_context() {
-        let state = TestState { score: 100 };
-        let mut ctx = Context::new(state, ());
-        assert_eq!(ctx.state().score, 100);
-        ctx.state_mut().score = 200;
-        assert_eq!(ctx.state().score, 200);
-        assert_eq!(*ctx.engine(), ());
-    }
-
-    #[test]
-    fn test_custom_engine_context() {
-        let state = TestState { score: 42 };
-        let engine = CustomEngine { updated: false };
-        let mut ctx = Context::new(state, engine);
-        assert_eq!(ctx.state().score, 42);
-        assert!(!ctx.engine().updated);
-
-        let style = Style::new();
-        ctx.engine_mut().update(&style);
-        assert!(ctx.engine().updated);
-    }
 }

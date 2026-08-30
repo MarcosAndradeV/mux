@@ -1,7 +1,0 @@
-[package]
-name = "mux-point-and-click-engine"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-muxutils = { path = "../muxutils", version = "0.1.0" }
