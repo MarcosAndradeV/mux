@@ -295,13 +295,85 @@ pub fn unload_render_texture(target: RenderTexture2D) {
     unsafe { UnloadRenderTexture(target) }
 }
 
+use std::cell::RefCell;
+
+thread_local! {
+    static RENDER_TEXTURE_STACK: RefCell<Vec<RenderTexture2D>> = const { RefCell::new(Vec::new()) };
+}
+
 pub fn begin_texture_mode(target: RenderTexture2D) {
-    unsafe { BeginTextureMode(target) }
+    RENDER_TEXTURE_STACK.with(|stack| {
+        stack.borrow_mut().push(target);
+    });
+    unsafe {
+        rlgl::rlDrawRenderBatchActive();
+        rlgl::rlEnableFramebuffer(target.id);
+        rlgl::rlViewport(0, 0, target.texture.width, target.texture.height);
+
+        rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+        rlgl::rlLoadIdentity();
+        rlgl::rlOrtho(
+            0.0,
+            target.texture.width as f64,
+            target.texture.height as f64,
+            0.0,
+            0.0,
+            1.0,
+        );
+
+        rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+        rlgl::rlLoadIdentity();
+    }
 }
 
 pub fn end_texture_mode() {
-    unsafe { EndTextureMode() }
+    let prev = RENDER_TEXTURE_STACK.with(|stack| {
+        let mut s = stack.borrow_mut();
+        s.pop();
+        s.last().copied()
+    });
+
+    unsafe {
+        rlgl::rlDrawRenderBatchActive();
+
+        if let Some(target) = prev {
+            rlgl::rlEnableFramebuffer(target.id);
+            rlgl::rlViewport(0, 0, target.texture.width, target.texture.height);
+
+            rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+            rlgl::rlLoadIdentity();
+            rlgl::rlOrtho(
+                0.0,
+                target.texture.width as f64,
+                target.texture.height as f64,
+                0.0,
+                0.0,
+                1.0,
+            );
+
+            rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+            rlgl::rlLoadIdentity();
+        } else {
+            rlgl::rlDisableFramebuffer();
+            rlgl::rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+
+            rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+            rlgl::rlLoadIdentity();
+            rlgl::rlOrtho(
+                0.0,
+                GetScreenWidth() as f64,
+                GetScreenHeight() as f64,
+                0.0,
+                0.0,
+                1.0,
+            );
+
+            rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+            rlgl::rlLoadIdentity();
+        }
+    }
 }
+
 
 // Some Basic Colors
 // NOTE: Custom raylib color palette for amazing visuals on WHITE background
@@ -572,6 +644,17 @@ impl Default for Texture {
         }
     }
 }
+
+impl Default for RenderTexture {
+    fn default() -> Self {
+        RenderTexture {
+            id: 0,
+            texture: Texture::default(),
+            depth: Texture::default(),
+        }
+    }
+}
+
 
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]

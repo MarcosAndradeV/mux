@@ -9,7 +9,7 @@
 //! `muxui` provides a simple, declarative way to lay out and render graphical elements in a window.
 //! The library's core structure revolves around:
 //! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
-//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], [`StackLayout`], and [`GridLayout`].
+//! - Standard elements: [`TextElement`], [`TextureElement`], [`RenderTextureElement`], [`RectangleElement`], [`ButtonElement`], [`StackLayout`], and [`GridLayout`].
 //! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
 
 /// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
@@ -302,6 +302,115 @@ impl Element for TextureElement {
         }
     }
 }
+
+/// A graphical element that displays an offscreen [`RenderTexture`].
+///
+/// Render textures are useful for offscreen rendering, mini-maps, particle surfaces,
+/// or procedural canvases rendered dynamically.
+///
+/// # GSS Properties
+///
+/// - `scale` - The scaling factor applied to the render texture dimensions (defaults to `1.0`).
+/// - `rotation` - The rotation angle in degrees (defaults to `0.0`).
+/// - `color` - The tint color applied to the texture when drawn (defaults to `WHITE`).
+/// - `width` - Explicit width override (defaults to scaled texture width).
+/// - `height` - Explicit height override (defaults to scaled texture height).
+pub struct RenderTextureElement {
+    /// The underlying Raylib RenderTexture.
+    pub target: RenderTexture,
+}
+
+impl RenderTextureElement {
+    /// Creates a new `RenderTextureElement` wrapping the given render texture target.
+    pub fn new(target: RenderTexture) -> Self {
+        Self { target }
+    }
+
+    /// Creates an empty placeholder `RenderTextureElement`.
+    pub fn invalid() -> Self {
+        Self {
+            target: RenderTexture::default(),
+        }
+    }
+
+    /// Returns the underlying render texture.
+    pub fn target(&self) -> RenderTexture {
+        self.target
+    }
+
+    /// Returns a mutable reference to the underlying render texture.
+    pub fn target_mut(&mut self) -> &mut RenderTexture {
+        &mut self.target
+    }
+
+    /// Sets a new render target, unloading the previous target if valid.
+    pub fn set_target(&mut self, target: RenderTexture) {
+        self.unload();
+        self.target = target;
+    }
+
+    /// Unloads the render texture from GPU memory if valid and the window is initialized.
+    pub fn unload(&mut self) {
+        unsafe {
+            if IsWindowReady() && is_render_texture_valid(self.target) {
+                unload_render_texture(self.target);
+                self.target = RenderTexture::default();
+            }
+        }
+    }
+}
+
+impl Element for RenderTextureElement {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            let size = self.measure(style, name);
+            let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
+            let color = get_color_field(style, &[name, "color"], WHITE);
+            // Raylib render textures are inverted vertically on the Y axis in OpenGL framebuffer
+            let source = Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: self.target.texture.width as f32,
+                height: -(self.target.texture.height as f32),
+            };
+            let dest = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            draw_texture_pro(
+                self.target.texture,
+                source,
+                dest,
+                Vector2::zero(),
+                rotation,
+                color,
+            );
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
+        let default_w = if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            self.target.texture.width as f32 * scale
+        } else {
+            0.0
+        };
+        let default_h = if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            self.target.texture.height as f32 * scale
+        } else {
+            0.0
+        };
+        let width = get_f32_field(style, &[name, "width"], default_w);
+        let height = get_f32_field(style, &[name, "height"], default_h);
+        Vector2 {
+            x: width,
+            y: height,
+        }
+    }
+}
+
 
 /// A wrapper element that makes any underlying [`Element`] interactive as a button.
 ///
@@ -1732,5 +1841,55 @@ mod tests {
         elem_off.place(&style, "offscreen_elem");
         assert_eq!(elem_off.draw_positions.borrow().len(), 0);
     }
-}
 
+    #[test]
+    fn test_render_texture_element_measure_and_style() {
+        let style = parse_str(
+            r#"
+            rt_default = {},
+            rt_scaled = {
+                scale = 2.0,
+            },
+            rt_explicit = {
+                width = 512.0,
+                height = 256.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let target = RenderTexture {
+            id: 1,
+            texture: Texture {
+                id: 1,
+                width: 100,
+                height: 100,
+                mipmaps: 1,
+                format: 7,
+            },
+            depth: Texture::default(),
+        };
+
+        let elem = RenderTextureElement::new(target);
+
+        // Default measure should match texture dimensions
+        let size_default = elem.measure(&style, "rt_default");
+        assert_eq!(size_default.x, 100.0);
+        assert_eq!(size_default.y, 100.0);
+
+        // Scaled measure
+        let size_scaled = elem.measure(&style, "rt_scaled");
+        assert_eq!(size_scaled.x, 200.0);
+        assert_eq!(size_scaled.y, 200.0);
+
+        // Explicit width/height override
+        let size_explicit = elem.measure(&style, "rt_explicit");
+        assert_eq!(size_explicit.x, 512.0);
+        assert_eq!(size_explicit.y, 256.0);
+
+        // Invalid element defaults to 0x0 unless explicit width/height
+        let invalid_elem = RenderTextureElement::invalid();
+        assert_eq!(invalid_elem.measure(&style, "rt_default").x, 0.0);
+        assert_eq!(invalid_elem.measure(&style, "rt_explicit").x, 512.0);
+    }
+}
