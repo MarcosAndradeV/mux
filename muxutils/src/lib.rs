@@ -174,7 +174,6 @@ pub fn map_color(string: &str) -> raylib::Color {
     }
 }
 
-
 /// Retrieves a color property from the stylesheet [`Style`] at the given path segment slice (e.g., `&["button", "color"]`).
 ///
 /// It supports reading color values defined as string names (e.g. `"red"`, `"dark green"`),
@@ -237,7 +236,9 @@ pub fn get_relative_field(obj: &gss::Object, path: &[&str], scale: f32, default:
 ///
 /// Returns `default` if the field is not present.
 pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> String {
-    gss.get::<String>(path).cloned().unwrap_or_else(|| default.to_string())
+    gss.get::<String>(path)
+        .cloned()
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Retrieves a `usize` property from the stylesheet [`Style`] at the given path.
@@ -257,9 +258,6 @@ pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usiz
         default
     }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -314,9 +312,18 @@ mod tests {
         .unwrap();
 
         // Color resolution (symbol reference and hex)
-        assert_eq!(get_color_field(&style, &["btn", "color"], raylib::WHITE), raylib::GOLD);
-        assert_eq!(get_color_field(&style, &["btn", "hex_color"], raylib::WHITE), raylib::get_color(0xFF00FFFF));
-        assert_eq!(get_color_field(&style, &["btn", "missing"], raylib::RED), raylib::RED);
+        assert_eq!(
+            get_color_field(&style, &["btn", "color"], raylib::WHITE),
+            raylib::GOLD
+        );
+        assert_eq!(
+            get_color_field(&style, &["btn", "hex_color"], raylib::WHITE),
+            raylib::get_color(0xFF00FFFF)
+        );
+        assert_eq!(
+            get_color_field(&style, &["btn", "missing"], raylib::RED),
+            raylib::RED
+        );
 
         // Boolean resolution
         assert!(get_bool_field(&style, "btn", "active", false));
@@ -327,11 +334,20 @@ mod tests {
         assert_eq!(get_f32_field(&style, &["btn", "count"], 0.0), 4.0);
 
         // Relative resolution (Percentage 50% * 800.0 = 400.0, Absolute pixels = 150.0)
-        assert_eq!(get_relative_field(&style, &["btn", "scale"], 800.0, 0.0), 400.0);
-        assert_eq!(get_relative_field(&style, &["btn", "pixel_offset"], 800.0, 0.0), 150.0);
+        assert_eq!(
+            get_relative_field(&style, &["btn", "scale"], 800.0, 0.0),
+            400.0
+        );
+        assert_eq!(
+            get_relative_field(&style, &["btn", "pixel_offset"], 800.0, 0.0),
+            150.0
+        );
 
         // String and usize resolution
-        assert_eq!(get_string_field(&style, &["btn", "title"], "Default"), "Fireball");
+        assert_eq!(
+            get_string_field(&style, &["btn", "title"], "Default"),
+            "Fireball"
+        );
         assert_eq!(get_usize_field(&style, &["btn", "count"], 1), 4);
     }
 
@@ -350,17 +366,28 @@ mod tests {
         assert_eq!(screen_rec.height, 720.0);
 
         // Within screen
-        assert!(is_rect_on_screen(raylib::Rectangle::new(100.0, 100.0, 50.0, 50.0)));
+        assert!(is_rect_on_screen(raylib::Rectangle::new(
+            100.0, 100.0, 50.0, 50.0
+        )));
         // Partially intersecting screen
-        assert!(is_rect_on_screen(raylib::Rectangle::new(-20.0, 100.0, 50.0, 50.0)));
+        assert!(is_rect_on_screen(raylib::Rectangle::new(
+            -20.0, 100.0, 50.0, 50.0
+        )));
         // Outside screen (right)
-        assert!(!is_rect_on_screen(raylib::Rectangle::new(1500.0, 100.0, 50.0, 50.0)));
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(
+            1500.0, 100.0, 50.0, 50.0
+        )));
         // Outside screen (above)
-        assert!(!is_rect_on_screen(raylib::Rectangle::new(100.0, -100.0, 50.0, 50.0)));
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(
+            100.0, -100.0, 50.0, 50.0
+        )));
         // Point/zero-sized rect inside screen
-        assert!(is_rect_on_screen(raylib::Rectangle::new(500.0, 500.0, 0.0, 0.0)));
+        assert!(is_rect_on_screen(raylib::Rectangle::new(
+            500.0, 500.0, 0.0, 0.0
+        )));
         // Point/zero-sized rect outside screen
-        assert!(!is_rect_on_screen(raylib::Rectangle::new(2000.0, 500.0, 0.0, 0.0)));
+        assert!(!is_rect_on_screen(raylib::Rectangle::new(
+            2000.0, 500.0, 0.0, 0.0
+        )));
     }
 }
-

@@ -257,6 +257,24 @@ pub fn unload_texture(texture: Texture2D) {
 pub fn get_fps() -> i32 {
     unsafe { GetFPS() }
 }
+pub fn draw_circle(centerX: i32, centerY: i32, radius: f32, color: Color) {
+    unsafe {
+        DrawCircle(centerX, centerY, radius, color);
+    }
+}
+pub fn draw_rectangle_v(position: Vector2, size: Vector2, color: Color) {
+    unsafe {
+        DrawRectangleV(position, size, color);
+    }
+}
+pub fn draw_rectangle_rec(rec: Rectangle, color: Color) {
+    unsafe {
+        DrawRectangleRec(rec, color);
+    }
+}
+pub fn is_window_ready() -> bool {
+    unsafe { IsWindowReady() }
+}
 
 pub fn draw_texture_ex(
     texture: Texture2D,
@@ -373,7 +391,6 @@ pub fn end_texture_mode() {
         }
     }
 }
-
 
 // Some Basic Colors
 // NOTE: Custom raylib color palette for amazing visuals on WHITE background
@@ -585,9 +602,6 @@ impl PartialEq for Vector2 {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y
     }
-    fn ne(&self, other: &Self) -> bool {
-        self.x != other.x || self.y != other.y
-    }
 }
 
 impl Eq for Vector2 {}
@@ -654,7 +668,6 @@ impl Default for RenderTexture {
         }
     }
 }
-
 
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]

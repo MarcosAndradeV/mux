@@ -228,10 +228,8 @@ pub fn clear_texture_cache() {
             cache.len()
         );
         for (_, texture) in cache.drain() {
-            unsafe {
-                if IsWindowReady() && is_texture_valid(texture) {
-                    unload_texture(texture);
-                }
+            if is_window_ready() && is_texture_valid(texture) {
+                unload_texture(texture);
             }
         }
     });
@@ -351,11 +349,9 @@ impl RenderTextureElement {
 
     /// Unloads the render texture from GPU memory if valid and the window is initialized.
     pub fn unload(&mut self) {
-        unsafe {
-            if IsWindowReady() && is_render_texture_valid(self.target) {
-                unload_render_texture(self.target);
-                self.target = RenderTexture::default();
-            }
+        if is_window_ready() && is_render_texture_valid(self.target) {
+            unload_render_texture(self.target);
+            self.target = RenderTexture::default();
         }
     }
 }
@@ -410,7 +406,6 @@ impl Element for RenderTextureElement {
         }
     }
 }
-
 
 /// A wrapper element that makes any underlying [`Element`] interactive as a button.
 ///
@@ -538,13 +533,13 @@ impl<E: Element> Element for ButtonElement<E> {
             get_color_field(style, &[name, "bg"], BLANK),
         );
         if bg_color != BLANK {
-            unsafe {
-                DrawRectangleRec(rec, bg_color);
-            }
+            draw_rectangle_rec(rec, bg_color);
         }
 
         // Hover effect if enabled and mouse is over
-        if !self.disabled && check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+        if !self.disabled
+            && check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec)
+        {
             let hover_color = get_color_field(
                 style,
                 &[name, "hover_color"],
@@ -554,9 +549,8 @@ impl<E: Element> Element for ButtonElement<E> {
                     get_color(0xFFFFFF33),
                 ),
             );
-            unsafe {
-                DrawRectangleRec(rec, hover_color);
-            }
+
+            draw_rectangle_rec(rec, hover_color);
         }
 
         // Draw inner element
@@ -567,16 +561,10 @@ impl<E: Element> Element for ButtonElement<E> {
             let disabled_color = get_color_field(
                 style,
                 &[name, "disabled_color"],
-                get_color_field(
-                    style,
-                    &[name, "disabled_bg"],
-                    get_color(0x00000088),
-                ),
+                get_color_field(style, &[name, "disabled_bg"], get_color(0x00000088)),
             );
             if disabled_color != BLANK {
-                unsafe {
-                    DrawRectangleRec(rec, disabled_color);
-                }
+                draw_rectangle_rec(rec, disabled_color);
             }
         }
     }
@@ -593,7 +581,6 @@ impl<E: Element> Element for ButtonElement<E> {
         }
     }
 }
-
 
 /// A layout container that arranges its child elements sequentially in a single direction (vertical or horizontal).
 ///
@@ -900,13 +887,11 @@ pub struct RectangleElement;
 
 impl Element for RectangleElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        unsafe {
-            DrawRectangleV(
-                position,
-                self.measure(style, name),
-                get_color_field(style, &[name, "color"], MAGENTA),
-            )
-        };
+        draw_rectangle_v(
+            position,
+            self.measure(style, name),
+            get_color_field(style, &[name, "color"], MAGENTA),
+        );
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
@@ -1013,10 +998,10 @@ pub mod point_and_click {
 
             // Hover effect: draw semi-transparent background
             if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
-                let hover_color = get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
-                unsafe {
-                    DrawRectangleRec(rec, hover_color);
-                }
+                let hover_color =
+                    get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
+
+                draw_rectangle_rec(rec, hover_color);
             }
 
             // Draw hotspot label inside/above the bounds
@@ -1081,13 +1066,13 @@ pub mod point_and_click {
                 height: size.y,
             };
 
-            let bg_color = get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
+            let bg_color =
+                get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
             let border_color = get_color_field(style, &[name, "border_color"], GOLD);
             let text_color = get_color_field(style, &[name, "color"], WHITE);
 
-            unsafe {
-                DrawRectangleRec(rec, bg_color);
-            }
+            draw_rectangle_rec(rec, bg_color);
+
             draw_rectangle_lines_ex(rec, 2.0, border_color);
 
             // Draw speaker name
@@ -1177,7 +1162,8 @@ pub mod point_and_click {
                 title_color,
             );
 
-            let label_w = measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
+            let label_w =
+                measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
             let mut current_x = position.x + label_w + gap;
 
             if self.items.is_empty() {
@@ -1219,7 +1205,6 @@ pub mod point_and_click {
 
 #[cfg(feature = "point-and-click")]
 pub use point_and_click::*;
-
 
 #[cfg(test)]
 mod tests {
@@ -1610,7 +1595,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(get_usize_field(&style, &["grid_config", "cols_int"], 2), 4);
-        assert_eq!(get_usize_field(&style, &["grid_config", "cols_float"], 2), 3);
+        assert_eq!(
+            get_usize_field(&style, &["grid_config", "cols_float"], 2),
+            3
+        );
         assert_eq!(get_usize_field(&style, &["grid_config", "missing"], 2), 2);
     }
 

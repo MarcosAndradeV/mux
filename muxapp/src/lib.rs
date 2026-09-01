@@ -207,7 +207,7 @@ impl<Context> App<Context> {
             virtual_height,
             title
         );
-        unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
+        set_config_flags(&[FLAG_WINDOW_RESIZABLE]);
         init_window(width, height, cstr!(&title));
         if audio_device {
             log_info!("MUX: Initializing audio device");
@@ -266,12 +266,11 @@ impl<Context> App<Context> {
 
                 if let Ok(mut w) =
                     notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                        if let Ok(event) = res {
-                            if event.paths.iter().any(|p| p == &abs_path_clone) {
-                                if event.kind.is_modify() || event.kind.is_create() {
-                                    let _ = tx_clone.send(());
-                                }
-                            }
+                        if let Ok(event) = res
+                            && event.paths.iter().any(|p| p == &abs_path_clone)
+                            && (event.kind.is_modify() || event.kind.is_create())
+                        {
+                            let _ = tx_clone.send(());
                         }
                     })
                 {
