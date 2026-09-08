@@ -1,5 +1,7 @@
 config = {
     scripts = {
-        test = "cargo test"
+        check = "cargo check --all-targets",
+        test  = "cargo test",
+        test_all = "proj run check && proj run test"
     }
 }

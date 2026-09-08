@@ -9,7 +9,7 @@
 //! `muxui` provides a simple, declarative way to lay out and render graphical elements in a window.
 //! The library's core structure revolves around:
 //! - [`Element`]: A trait representing any UI widget that can be measured, drawn, and handle events.
-//! - Standard elements: [`TextElement`], [`TextureElement`], [`RectangleElement`], [`ButtonElement`], and [`StackLayout`].
+//! - Standard elements: [`TextElement`], [`TextureElement`], [`RenderTextureElement`], [`RectangleElement`], [`ButtonElement`], [`StackLayout`], and [`GridLayout`].
 //! - Styling via [`Style`] (alias for [`Gss`]), which resolves layout configurations like margins, spacing, and colors.
 
 /// Type alias for the Graph Style Sheets ([`Gss`]) context used to style UI components.
@@ -69,10 +69,13 @@ pub trait Element {
     /// * `style` - The stylesheet context.
     /// * `name` - The unique style selector name.
     fn place(&self, style: &Style, name: &str) {
-        let position = self.get_position(style, name);
-        self.draw(position, style, name);
-        if get_bool_field(style, name, "frame", false) {
-            draw_rectangle_lines_ex(self.get_rec(style, name), DEBUG_FRAME_LINE_THICK, GREEN);
+        let rec = self.get_rec(style, name);
+        if is_rect_on_screen(rec) {
+            let position = Vector2 { x: rec.x, y: rec.y };
+            self.draw(position, style, name);
+            if get_bool_field(style, name, "frame", false) {
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
         }
     }
 
@@ -220,12 +223,13 @@ pub fn get_cached_texture(path: &str) -> Texture2D {
 pub fn clear_texture_cache() {
     TEXTURE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        log_info!("MUXUI: Clearing texture cache ({} textures)...", cache.len());
+        log_info!(
+            "MUXUI: Clearing texture cache ({} textures)...",
+            cache.len()
+        );
         for (_, texture) in cache.drain() {
-            unsafe {
-                if IsWindowReady() && is_texture_valid(texture) {
-                    unload_texture(texture);
-                }
+            if is_window_ready() && is_texture_valid(texture) {
+                unload_texture(texture);
             }
         }
     });
@@ -297,23 +301,133 @@ impl Element for TextureElement {
     }
 }
 
-/// A wrapper element that makes any underlying [`Element`] interactive as a button.
+/// A graphical element that displays an offscreen [`RenderTexture`].
 ///
-/// It caches the element's layout rectangle and checks for mouse button clicks.
+/// Render textures are useful for offscreen rendering, mini-maps, particle surfaces,
+/// or procedural canvases rendered dynamically.
 ///
 /// # GSS Properties
 ///
-/// - `button.color` - The background color of the button (defaults to `BLANK` / transparent).
+/// - `scale` - The scaling factor applied to the render texture dimensions (defaults to `1.0`).
+/// - `rotation` - The rotation angle in degrees (defaults to `0.0`).
+/// - `color` - The tint color applied to the texture when drawn (defaults to `WHITE`).
+/// - `width` - Explicit width override (defaults to scaled texture width).
+/// - `height` - Explicit height override (defaults to scaled texture height).
+pub struct RenderTextureElement {
+    /// The underlying Raylib RenderTexture.
+    pub target: RenderTexture,
+}
+
+impl RenderTextureElement {
+    /// Creates a new `RenderTextureElement` wrapping the given render texture target.
+    pub fn new(target: RenderTexture) -> Self {
+        Self { target }
+    }
+
+    /// Creates an empty placeholder `RenderTextureElement`.
+    pub fn invalid() -> Self {
+        Self {
+            target: RenderTexture::default(),
+        }
+    }
+
+    /// Returns the underlying render texture.
+    pub fn target(&self) -> RenderTexture {
+        self.target
+    }
+
+    /// Returns a mutable reference to the underlying render texture.
+    pub fn target_mut(&mut self) -> &mut RenderTexture {
+        &mut self.target
+    }
+
+    /// Sets a new render target, unloading the previous target if valid.
+    pub fn set_target(&mut self, target: RenderTexture) {
+        self.unload();
+        self.target = target;
+    }
+
+    /// Unloads the render texture from GPU memory if valid and the window is initialized.
+    pub fn unload(&mut self) {
+        if is_window_ready() && is_render_texture_valid(self.target) {
+            unload_render_texture(self.target);
+            self.target = RenderTexture::default();
+        }
+    }
+}
+
+impl Element for RenderTextureElement {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            let size = self.measure(style, name);
+            let rotation = get_f32_field(style, &[name, "rotation"], DEFAULT_ROTATION);
+            let color = get_color_field(style, &[name, "color"], WHITE);
+            // Raylib render textures are inverted vertically on the Y axis in OpenGL framebuffer
+            let source = Rectangle {
+                x: 0.0,
+                y: 0.0,
+                width: self.target.texture.width as f32,
+                height: -(self.target.texture.height as f32),
+            };
+            let dest = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            draw_texture_pro(
+                self.target.texture,
+                source,
+                dest,
+                Vector2::zero(),
+                rotation,
+                color,
+            );
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let scale = get_f32_field(style, &[name, "scale"], DEFAULT_SCALE);
+        let default_w = if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            self.target.texture.width as f32 * scale
+        } else {
+            0.0
+        };
+        let default_h = if self.target.id > 0 && is_texture_valid(self.target.texture) {
+            self.target.texture.height as f32 * scale
+        } else {
+            0.0
+        };
+        let width = get_f32_field(style, &[name, "width"], default_w);
+        let height = get_f32_field(style, &[name, "height"], default_h);
+        Vector2 {
+            x: width,
+            y: height,
+        }
+    }
+}
+
+/// A wrapper element that makes any underlying [`Element`] interactive as a button.
+///
+/// It caches the element's layout rectangle and checks for mouse clicks and keyboard hotkeys.
+///
+/// # GSS Properties
+///
+/// - `bg` / `background_color` - The background color of the button (defaults to `BLANK`).
+/// - `hover_color` / `button.hover_color` - The highlight color drawn when hovered (defaults to `0xFFFFFF33`).
+/// - `disabled_color` / `disabled_bg` - The overlay/dim color drawn when disabled (defaults to `0x00000088`).
 pub struct ButtonElement<E: Element> {
     element: E,
+    disabled: bool,
     cached_rec: std::cell::Cell<Rectangle>,
 }
 
 impl<E: Element> ButtonElement<E> {
-    /// Creates a new `ButtonElement` wrapping the given element.
-    pub fn new(element: E) -> Self {
+    /// Creates a new `ButtonElement` wrapping the given element with no valid rectangle.
+    pub fn new_with_no_cached_rec(element: E) -> Self {
         Self {
             element,
+            disabled: false,
             cached_rec: std::cell::Cell::new(Rectangle {
                 x: -1000.0,
                 y: -1000.0,
@@ -323,13 +437,66 @@ impl<E: Element> ButtonElement<E> {
         }
     }
 
-    fn click(&self) -> bool {
-        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+    /// Creates a new `ButtonElement` wrapping the given element with valid rectangle calculated from style.
+    pub fn new(element: E, style: &Style, name: &str) -> Self {
+        let e = Self::new_with_no_cached_rec(element);
+        let position = e.get_position(style, name);
+        let size = e.measure(style, name);
+        let rec = Rectangle {
+            x: position.x,
+            y: position.y,
+            width: size.x,
+            height: size.y,
+        };
+        e.cached_rec.set(rec);
+        e
+    }
+
+    /// Builder method to set the disabled state of the button.
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Sets the disabled state of the button.
+    pub fn set_disabled(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
+    /// Returns `true` if the button is currently disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    /// Check if element is being hovered (returns `false` if disabled).
+    pub fn hover(&self) -> bool {
+        !self.disabled
             && check_collision_circle_rec(
                 get_virtual_mouse_position(),
                 MOUSE_CLICK_RADIUS,
                 self.cached_rec.get(),
             )
+    }
+
+    /// Check if element is clicked (returns `false` if disabled).
+    pub fn click(&self) -> bool {
+        !self.disabled
+            && is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+            && check_collision_circle_rec(
+                get_virtual_mouse_position(),
+                MOUSE_CLICK_RADIUS,
+                self.cached_rec.get(),
+            )
+    }
+
+    /// Checks if the button is triggered via mouse click OR keyboard key press.
+    ///
+    /// Returns `false` if the button is disabled.
+    pub fn click_or_key(&self, key: KeyboardKey) -> bool {
+        if self.disabled {
+            return false;
+        }
+        self.click() || is_key_pressed(key)
     }
 
     /// Returns an immutable reference to the wrapped element.
@@ -341,11 +508,15 @@ impl<E: Element> ButtonElement<E> {
     pub fn element_mut(&mut self) -> &mut E {
         &mut self.element
     }
+
+    /// Consumes the button and returns the inner element.
+    pub fn into_inner(self) -> E {
+        self.element
+    }
 }
 
 impl<E: Element> Element for ButtonElement<E> {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let color = get_color_field(style, &[name, "button", "color"], BLANK);
         let size = self.measure(style, name);
         let rec = Rectangle {
             x: position.x,
@@ -354,10 +525,48 @@ impl<E: Element> Element for ButtonElement<E> {
             height: size.y,
         };
         self.cached_rec.set(rec);
-        unsafe {
-            DrawRectangleRec(rec, color);
+
+        // Background color if configured
+        let bg_color = get_color_field(
+            style,
+            &[name, "background_color"],
+            get_color_field(style, &[name, "bg"], BLANK),
+        );
+        if bg_color != BLANK {
+            draw_rectangle_rec(rec, bg_color);
         }
+
+        // Hover effect if enabled and mouse is over
+        if !self.disabled
+            && check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec)
+        {
+            let hover_color = get_color_field(
+                style,
+                &[name, "hover_color"],
+                get_color_field(
+                    style,
+                    &[name, "button", "hover_color"],
+                    get_color(0xFFFFFF33),
+                ),
+            );
+
+            draw_rectangle_rec(rec, hover_color);
+        }
+
+        // Draw inner element
         self.element.draw(position, style, name);
+
+        // Disabled overlay tint if disabled
+        if self.disabled {
+            let disabled_color = get_color_field(
+                style,
+                &[name, "disabled_color"],
+                get_color_field(style, &[name, "disabled_bg"], get_color(0x00000088)),
+            );
+            if disabled_color != BLANK {
+                draw_rectangle_rec(rec, disabled_color);
+            }
+        }
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
@@ -453,16 +662,19 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
                 }
             };
 
-            child.draw(child_pos, style, child_name);
+            let rec = Rectangle {
+                x: child_pos.x,
+                y: child_pos.y,
+                width: child_size.x,
+                height: child_size.y,
+            };
 
-            if get_bool_field(style, child_name, "frame", false) {
-                let rec = Rectangle {
-                    x: child_pos.x,
-                    y: child_pos.y,
-                    width: child_size.x,
-                    height: child_size.y,
-                };
-                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            if is_rect_on_screen(rec) {
+                child.draw(child_pos, style, child_name);
+
+                if get_bool_field(style, child_name, "frame", false) {
+                    draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+                }
             }
         }
     }
@@ -508,6 +720,162 @@ impl<'a, 'b> Element for StackLayout<'a, 'b> {
     }
 }
 
+/// A 2D grid layout container that arranges child elements across rows and columns.
+///
+/// # GSS Properties
+///
+/// - `columns` - The number of columns in the grid (defaults to `2`).
+/// - `gap` - Default spacing applied between rows and columns (defaults to `0.0`).
+/// - `column_gap` - Spacing between adjacent columns (defaults to `gap` or `0.0`).
+/// - `row_gap` - Spacing between adjacent rows (defaults to `gap` or `0.0`).
+/// - `cell_width` - Explicit fixed cell width override (defaults to maximum measured child width).
+/// - `cell_height` - Explicit fixed cell height override (defaults to maximum measured child height).
+///
+/// # Child Properties
+///
+/// Child elements placed inside the grid can specify alignment inside their allocated cell:
+/// - `align` - Horizontal alignment within cell (`"center"`, `"right"`).
+/// - `valign` - Vertical alignment within cell (`"middle"`, `"center"`, `"bottom"`).
+/// - `frame` - Draws a green debug border around the child if `true`.
+pub struct GridLayout<'a, 'b> {
+    children: &'b [(&'a str, &'a dyn Element)],
+}
+
+impl<'a, 'b> GridLayout<'a, 'b> {
+    /// Creates a new `GridLayout` with the specified named child elements.
+    ///
+    /// Each child is specified as a tuple of `(selector_name, element_ref)`.
+    pub fn new(children: &'b [(&'a str, &'a dyn Element)]) -> Self {
+        Self { children }
+    }
+
+    /// Returns the slice of children elements managed by this layout.
+    pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
+        &self.children
+    }
+
+    /// Computes the effective cell dimensions `(cell_width, cell_height)` for the grid.
+    pub fn get_cell_size(&self, style: &Style, name: &str) -> Vector2 {
+        let explicit_w = style
+            .get::<f32>(&[name, "cell_width"])
+            .copied()
+            .or_else(|| style.get::<u32>(&[name, "cell_width"]).map(|&v| v as f32));
+        let explicit_h = style
+            .get::<f32>(&[name, "cell_height"])
+            .copied()
+            .or_else(|| style.get::<u32>(&[name, "cell_height"]).map(|&v| v as f32));
+
+        let mut max_w: f32 = 0.0;
+        let mut max_h: f32 = 0.0;
+
+        if explicit_w.is_none() || explicit_h.is_none() {
+            for (child_name, child) in self.children {
+                let size = child.measure(style, child_name);
+                max_w = max_w.max(size.x);
+                max_h = max_h.max(size.y);
+            }
+        }
+
+        Vector2 {
+            x: explicit_w.unwrap_or(max_w),
+            y: explicit_h.unwrap_or(max_h),
+        }
+    }
+}
+
+impl<'a, 'b> Element for GridLayout<'a, 'b> {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        if self.children.is_empty() {
+            return;
+        }
+
+        let columns = get_usize_field(style, &[name, "columns"], 2).max(1);
+        let default_gap = get_f32_field(style, &[name, "gap"], 0.0);
+        let col_gap = get_f32_field(style, &[name, "column_gap"], default_gap);
+        let row_gap = get_f32_field(style, &[name, "row_gap"], default_gap);
+        let cell_size = self.get_cell_size(style, name);
+
+        for (i, (child_name, child)) in self.children.iter().enumerate() {
+            let col = (i % columns) as f32;
+            let row = (i / columns) as f32;
+
+            let child_size = child.measure(style, child_name);
+            let mut child_x = position.x + col * (cell_size.x + col_gap);
+            let mut child_y = position.y + row * (cell_size.y + row_gap);
+
+            // Optional child alignment within cell
+            if let Some(align) = style.get::<String>(&[child_name, "align"]) {
+                match align.as_str() {
+                    "center" => child_x += (cell_size.x - child_size.x) / 2.0,
+                    "right" => child_x += cell_size.x - child_size.x,
+                    _ => {}
+                }
+            }
+
+            if let Some(valign) = style.get::<String>(&[child_name, "valign"]) {
+                match valign.as_str() {
+                    "middle" | "center" => child_y += (cell_size.y - child_size.y) / 2.0,
+                    "bottom" => child_y += cell_size.y - child_size.y,
+                    _ => {}
+                }
+            }
+
+            let child_pos = Vector2 {
+                x: child_x,
+                y: child_y,
+            };
+
+            let rec = Rectangle {
+                x: child_pos.x,
+                y: child_pos.y,
+                width: child_size.x,
+                height: child_size.y,
+            };
+
+            if is_rect_on_screen(rec) {
+                child.draw(child_pos, style, child_name);
+
+                if get_bool_field(style, child_name, "frame", false) {
+                    draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+                }
+            }
+        }
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        if self.children.is_empty() {
+            return Vector2::zero();
+        }
+
+        let columns = get_usize_field(style, &[name, "columns"], 2).max(1);
+        let default_gap = get_f32_field(style, &[name, "gap"], 0.0);
+        let col_gap = get_f32_field(style, &[name, "column_gap"], default_gap);
+        let row_gap = get_f32_field(style, &[name, "row_gap"], default_gap);
+        let cell_size = self.get_cell_size(style, name);
+
+        let total_items = self.children.len();
+        let cols_used = total_items.min(columns) as f32;
+        let rows_used = ((total_items + columns - 1) / columns) as f32;
+
+        let width = if cols_used > 0.0 {
+            cols_used * cell_size.x + (cols_used - 1.0) * col_gap
+        } else {
+            0.0
+        };
+
+        let height = if rows_used > 0.0 {
+            rows_used * cell_size.y + (rows_used - 1.0) * row_gap
+        } else {
+            0.0
+        };
+
+        Vector2 {
+            x: width,
+            y: height,
+        }
+    }
+}
+
 /// A basic layout rectangle that fills space with specified dimensions and background color.
 ///
 /// # GSS Properties
@@ -519,13 +887,11 @@ pub struct RectangleElement;
 
 impl Element for RectangleElement {
     fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        unsafe {
-            DrawRectangleV(
-                position,
-                self.measure(style, name),
-                get_color_field(style, &[name, "color"], MAGENTA),
-            )
-        };
+        draw_rectangle_v(
+            position,
+            self.measure(style, name),
+            get_color_field(style, &[name, "color"], MAGENTA),
+        );
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
@@ -563,265 +929,282 @@ impl<P, E: Element> Element for UpdateElement<P, E> {
     }
 }
 
-/// A point-and-click hotspot interaction zone.
-#[derive(Debug)]
-pub struct HotspotElement {
-    /// Identifier for the hotspot.
-    pub id: String,
-    cached_rec: std::cell::Cell<Rectangle>,
-}
+/// UI elements specific to point-and-click game engine interactions (hotspots, dialogue overlay, inventory list).
+#[cfg(feature = "point-and-click")]
+pub mod point_and_click {
+    use super::*;
 
-impl HotspotElement {
-    /// Create a new hotspot element and caches it's rectangle
-    pub fn new_from_style(style: &Style, name: &str) -> Self {
-        let e = Self {
-            id: name.to_string(),
-            cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
-        };
-        let position = e.get_position(style, name);
-        let size = e.measure(style, name);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-        e.cached_rec.set(rec);
-        e
+    /// A point-and-click hotspot interaction zone.
+    #[derive(Debug)]
+    pub struct HotspotElement {
+        path: String,
+        cached_rec: std::cell::Cell<Rectangle>,
     }
 
-    /// Check if element is being hovered
-    pub fn hover(&self) -> bool {
-        check_collision_circle_rec(
-            get_virtual_mouse_position(),
-            MOUSE_CLICK_RADIUS,
-            self.cached_rec.get(),
-        )
-    }
+    impl HotspotElement {
+        /// Create a new hotspot element and caches it's rectangle
+        pub fn new_from_style(style: &Style, scene_id: &str, id: &str) -> Self {
+            let e = Self {
+                path: format!("scenes.{scene_id}.hotspots.{id}"),
+                cached_rec: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+            };
+            let position = e.get_position(style, &e.path);
+            let size = e.measure(style, &e.path);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            e.cached_rec.set(rec);
+            e
+        }
 
-    /// Check if element is clicked
-    pub fn click(&self) -> bool {
-        is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-            && check_collision_circle_rec(
+        /// Check if element is being hovered
+        pub fn hover(&self) -> bool {
+            check_collision_circle_rec(
                 get_virtual_mouse_position(),
                 MOUSE_CLICK_RADIUS,
                 self.cached_rec.get(),
             )
+        }
+
+        /// Check if element is clicked
+        pub fn click(&self) -> bool {
+            is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+                && check_collision_circle_rec(
+                    get_virtual_mouse_position(),
+                    MOUSE_CLICK_RADIUS,
+                    self.cached_rec.get(),
+                )
+        }
+
+        /// Get full path
+        pub fn path(&self) -> &str {
+            &self.path
+        }
     }
-}
 
-impl Element for HotspotElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let size = self.measure(style, name);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-        self.cached_rec.set(rec);
+    impl Element for HotspotElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let size = self.measure(style, name);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
+            self.cached_rec.set(rec);
 
-        // Hover effect: draw semi-transparent background
-        if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
-            let hover_color = get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
-            unsafe {
-                DrawRectangleRec(rec, hover_color);
+            // Hover effect: draw semi-transparent background
+            if check_collision_circle_rec(get_virtual_mouse_position(), MOUSE_CLICK_RADIUS, rec) {
+                let hover_color =
+                    get_color_field(style, &[name, "hover_color"], get_color(0xFFFFFF33));
+
+                draw_rectangle_rec(rec, hover_color);
+            }
+
+            // Draw hotspot label inside/above the bounds
+
+            if let Some(val) = style.get::<String>(&[name, "tooltip"]) {
+                let label = format!("[{}]", val);
+                let bounds = self.get_rec(style, name);
+
+                let font_size = 12;
+                let text_w = measure_text(cstr!(&label), font_size);
+                draw_text(
+                    cstr!(&label),
+                    (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
+                    (bounds.y + bounds.height / 2.0 - 6.0) as i32,
+                    font_size,
+                    if self.hover() { YELLOW } else { WHITE },
+                );
             }
         }
 
-        // Draw hotspot label inside/above the bounds
-        let label = format!("[{}]", get_string_field(style, &[name, "tooltip"], ""));
-        let bounds = self.get_rec(style, name);
-
-        let font_size = 12;
-        let text_w = measure_text(cstr!(&label), font_size);
-        draw_text(
-            cstr!(&label),
-            (bounds.x + bounds.width / 2.0 - text_w as f32 / 2.0) as i32,
-            (bounds.y + bounds.height / 2.0 - 6.0) as i32,
-            font_size,
-            if self.hover() { YELLOW } else { WHITE },
-        );
-    }
-
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
-    }
-
-    fn event(&self) -> Event {
-        if self.click() {
-            Event::ButtonClicked
-        } else {
-            Event::None
-        }
-    }
-}
-
-/// A dialogue overlay box.
-pub struct DialogueElement {
-    /// Who is speaking.
-    pub speaker: String,
-    /// Dialogue text line.
-    pub text: String,
-}
-
-impl DialogueElement {
-    /// Create a new dialogue box element.
-    pub fn new(speaker: impl Into<String>, text: impl Into<String>) -> Self {
-        Self {
-            speaker: speaker.into(),
-            text: text.into(),
-        }
-    }
-}
-
-impl Element for DialogueElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let size = self.measure(style, name);
-        let rec = Rectangle {
-            x: position.x,
-            y: position.y,
-            width: size.x,
-            height: size.y,
-        };
-
-        let bg_color = get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
-        let border_color = get_color_field(style, &[name, "border_color"], GOLD);
-        let text_color = get_color_field(style, &[name, "color"], WHITE);
-
-        unsafe {
-            DrawRectangleRec(rec, bg_color);
-        }
-        draw_rectangle_lines_ex(rec, 2.0, border_color);
-
-        // Draw speaker name
-        let speaker_tag = format!("{}:", self.speaker);
-        let font_size = get_f32_field(style, &[name, "speaker", "font_size"], 20.0);
-        let speaker_color = get_color_field(style, &[name, "speaker", "color"], GOLD);
-        draw_text_ex(
-            get_font_default(),
-            cstr!(&speaker_tag),
-            Vector2::new(position.x + 20.0, position.y + 20.0),
-            font_size,
-            2.0,
-            speaker_color,
-        );
-
-        // Draw dialogue text
-        let text_font_size = get_f32_field(style, &[name, "text", "font_size"], 18.0);
-        draw_text_ex(
-            get_font_default(),
-            cstr!(&self.text),
-            Vector2::new(position.x + 20.0, position.y + 55.0),
-            text_font_size,
-            2.0,
-            text_color,
-        );
-
-        // Draw skip instruction prompt
-        let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
-        let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
-        let prompt_text = "(Click or Press Space to continue)";
-        let prompt_w = measure_text_ex(
-            get_font_default(),
-            cstr!(prompt_text),
-            prompt_font_size,
-            2.0,
-        )
-        .x;
-
-        draw_text_ex(
-            get_font_default(),
-            cstr!(prompt_text),
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
             Vector2::new(
-                position.x + size.x - prompt_w - 20.0,
-                position.y + size.y - prompt_font_size - 15.0,
-            ),
-            prompt_font_size,
-            2.0,
-            prompt_color,
-        );
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
+
+        fn event(&self) -> Event {
+            if self.click() {
+                Event::ButtonClicked
+            } else {
+                Event::None
+            }
+        }
     }
 
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
+    /// A dialogue overlay box.
+    pub struct DialogueElement {
+        /// Who is speaking.
+        pub speaker: String,
+        /// Dialogue text line.
+        pub text: String,
     }
-}
 
-/// An element representing a list/grid of inventory items.
-pub struct InventoryElement {
-    /// Items inside inventory list.
-    pub items: Vec<String>,
-}
-
-impl InventoryElement {
-    /// Create a new inventory list element.
-    pub fn new(items: Vec<String>) -> Self {
-        Self { items }
+    impl DialogueElement {
+        /// Create a new dialogue box element.
+        pub fn new(speaker: impl Into<String>, text: impl Into<String>) -> Self {
+            Self {
+                speaker: speaker.into(),
+                text: text.into(),
+            }
+        }
     }
-}
 
-impl Element for InventoryElement {
-    fn draw(&self, position: Vector2, style: &Style, name: &str) {
-        let title_color = get_color_field(style, &[name, "title", "color"], GRAY);
-        let item_color = get_color_field(style, &[name, "item", "color"], GOLD);
-        let font_size = get_f32_field(style, &[name, "font_size"], 16.0);
-        let gap = get_f32_field(style, &[name, "gap"], 20.0);
+    impl Element for DialogueElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let size = self.measure(style, name);
+            let rec = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: size.x,
+                height: size.y,
+            };
 
-        // Draw INVENTORY: label
-        draw_text_ex(
-            get_font_default(),
-            cstr!("INVENTORY:"),
-            position,
-            font_size,
-            2.0,
-            title_color,
-        );
+            let bg_color =
+                get_color_field(style, &[name, "background_color"], get_color(0x0C0C0CFF));
+            let border_color = get_color_field(style, &[name, "border_color"], GOLD);
+            let text_color = get_color_field(style, &[name, "color"], WHITE);
 
-        let label_w = measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
-        let mut current_x = position.x + label_w + gap;
+            draw_rectangle_rec(rec, bg_color);
 
-        if self.items.is_empty() {
+            draw_rectangle_lines_ex(rec, 2.0, border_color);
+
+            // Draw speaker name
+            let speaker_tag = format!("{}:", self.speaker);
+            let font_size = get_f32_field(style, &[name, "speaker", "font_size"], 20.0);
+            let speaker_color = get_color_field(style, &[name, "speaker", "color"], GOLD);
             draw_text_ex(
                 get_font_default(),
-                cstr!("(empty)"),
-                Vector2::new(current_x, position.y),
+                cstr!(&speaker_tag),
+                Vector2::new(position.x + 20.0, position.y + 20.0),
                 font_size,
                 2.0,
-                DARKGRAY,
+                speaker_color,
             );
-        } else {
-            for item in &self.items {
-                let item_label = format!("[{}]", item);
+
+            // Draw dialogue text
+            let text_font_size = get_f32_field(style, &[name, "text", "font_size"], 18.0);
+            draw_text_ex(
+                get_font_default(),
+                cstr!(&self.text),
+                Vector2::new(position.x + 20.0, position.y + 55.0),
+                text_font_size,
+                2.0,
+                text_color,
+            );
+
+            // Draw skip instruction prompt
+            let prompt_font_size = get_f32_field(style, &[name, "prompt", "font_size"], 12.0);
+            let prompt_color = get_color_field(style, &[name, "prompt", "color"], GRAY);
+            let prompt_text = "(Click or Press Space to continue)";
+            let prompt_w = measure_text_ex(
+                get_font_default(),
+                cstr!(prompt_text),
+                prompt_font_size,
+                2.0,
+            )
+            .x;
+
+            draw_text_ex(
+                get_font_default(),
+                cstr!(prompt_text),
+                Vector2::new(
+                    position.x + size.x - prompt_w - 20.0,
+                    position.y + size.y - prompt_font_size - 15.0,
+                ),
+                prompt_font_size,
+                2.0,
+                prompt_color,
+            );
+        }
+
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
+            Vector2::new(
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
+    }
+
+    /// An element representing a list/grid of inventory items.
+    pub struct InventoryElement {
+        /// Items inside inventory list.
+        pub items: Vec<String>,
+    }
+
+    impl InventoryElement {
+        /// Create a new inventory list element.
+        pub fn new(items: Vec<String>) -> Self {
+            Self { items }
+        }
+    }
+
+    impl Element for InventoryElement {
+        fn draw(&self, position: Vector2, style: &Style, name: &str) {
+            let title_color = get_color_field(style, &[name, "title", "color"], GRAY);
+            let item_color = get_color_field(style, &[name, "item", "color"], GOLD);
+            let font_size = get_f32_field(style, &[name, "font_size"], 16.0);
+            let gap = get_f32_field(style, &[name, "gap"], 20.0);
+
+            // Draw INVENTORY: label
+            draw_text_ex(
+                get_font_default(),
+                cstr!("INVENTORY:"),
+                position,
+                font_size,
+                2.0,
+                title_color,
+            );
+
+            let label_w =
+                measure_text_ex(get_font_default(), cstr!("INVENTORY:"), font_size, 2.0).x;
+            let mut current_x = position.x + label_w + gap;
+
+            if self.items.is_empty() {
                 draw_text_ex(
                     get_font_default(),
-                    cstr!(&item_label),
+                    cstr!("(empty)"),
                     Vector2::new(current_x, position.y),
                     font_size,
                     2.0,
-                    item_color,
+                    DARKGRAY,
                 );
+            } else {
+                for item in &self.items {
+                    let item_label = format!("[{}]", item);
+                    draw_text_ex(
+                        get_font_default(),
+                        cstr!(&item_label),
+                        Vector2::new(current_x, position.y),
+                        font_size,
+                        2.0,
+                        item_color,
+                    );
 
-                let item_w =
-                    measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
-                current_x += item_w + gap;
+                    let item_w =
+                        measure_text_ex(get_font_default(), cstr!(&item_label), font_size, 2.0).x;
+                    current_x += item_w + gap;
+                }
             }
         }
-    }
 
-    fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
-        )
+        fn measure(&self, style: &Style, name: &str) -> Vector2 {
+            Vector2::new(
+                style.get_or_default(&[name, "width"]),
+                style.get_or_default(&[name, "height"]),
+            )
+        }
     }
 }
+
+#[cfg(feature = "point-and-click")]
+pub use point_and_click::*;
 
 #[cfg(test)]
 mod tests {
@@ -989,7 +1372,7 @@ mod tests {
     #[test]
     fn test_button_element_wrapping() {
         let child = MockElement::new(60.0, 30.0);
-        let mut btn = ButtonElement::new(child);
+        let mut btn = ButtonElement::new_with_no_cached_rec(child);
 
         let style = Style::new();
         // Verify size measurement delegates to wrapped element
@@ -1197,5 +1580,304 @@ mod tests {
             assert_eq!(size.x, 10.0);
             assert_eq!(size.y, 20.0);
         }
+    }
+
+    #[test]
+    fn test_style_get_usize_field() {
+        let style = parse_str(
+            r#"
+            grid_config = {
+                cols_int = 4,
+                cols_float = 3.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(get_usize_field(&style, &["grid_config", "cols_int"], 2), 4);
+        assert_eq!(
+            get_usize_field(&style, &["grid_config", "cols_float"], 2),
+            3
+        );
+        assert_eq!(get_usize_field(&style, &["grid_config", "missing"], 2), 2);
+    }
+
+    #[test]
+    fn test_button_element_disabled_state() {
+        let child = MockElement::new(60.0, 30.0);
+        let mut btn = ButtonElement::new_with_no_cached_rec(child);
+
+        assert!(!btn.is_disabled());
+
+        btn.set_disabled(true);
+        assert!(btn.is_disabled());
+
+        btn.set_disabled(false);
+        assert!(!btn.is_disabled());
+
+        let btn_disabled = btn.with_disabled(true);
+        assert!(btn_disabled.is_disabled());
+
+        let inner = btn_disabled.into_inner();
+        assert_eq!(inner.size.x, 60.0);
+    }
+
+    #[test]
+    fn test_grid_layout_measure_basic() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                gap = 10.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(50.0, 30.0);
+        let child2 = MockElement::new(60.0, 40.0);
+        let child3 = MockElement::new(40.0, 20.0);
+        let child4 = MockElement::new(55.0, 35.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+            ("child4", &child4),
+        ];
+
+        let grid = GridLayout::new(children);
+        let size = grid.measure(&style, "grid");
+
+        // Cell width = max(50, 60, 40, 55) = 60.0
+        // Cell height = max(30, 40, 20, 35) = 40.0
+        // 4 items in 2 columns => 2 cols, 2 rows
+        // Width: 2 * 60 + 1 * 10 = 130.0
+        // Height: 2 * 40 + 1 * 10 = 90.0
+        assert_eq!(size.x, 130.0);
+        assert_eq!(size.y, 90.0);
+    }
+
+    #[test]
+    fn test_grid_layout_measure_with_cell_overrides() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 3,
+                cell_width = 100.0,
+                cell_height = 50.0,
+                column_gap = 12.0,
+                row_gap = 8.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let c1 = MockElement::new(20.0, 20.0);
+        let c2 = MockElement::new(20.0, 20.0);
+        let c3 = MockElement::new(20.0, 20.0);
+        let c4 = MockElement::new(20.0, 20.0);
+        let c5 = MockElement::new(20.0, 20.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("c1", &c1),
+            ("c2", &c2),
+            ("c3", &c3),
+            ("c4", &c4),
+            ("c5", &c5),
+        ];
+
+        let grid = GridLayout::new(children);
+        let size = grid.measure(&style, "grid");
+
+        // 5 items in 3 columns => 3 cols, 2 rows
+        // Width: 3 * 100 + 2 * 12 = 324.0
+        // Height: 2 * 50 + 1 * 8 = 108.0
+        assert_eq!(size.x, 324.0);
+        assert_eq!(size.y, 108.0);
+    }
+
+    #[test]
+    fn test_grid_layout_positioning_and_alignment() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                column_gap = 20.0,
+                row_gap = 10.0,
+                cell_width = 100.0,
+                cell_height = 60.0,
+            },
+            child1 = {},
+            child2 = {
+                align = "center",
+            },
+            child3 = {
+                valign = "center",
+            },
+            child4 = {
+                align = "right",
+                valign = "bottom",
+            },
+            "#,
+        )
+        .unwrap();
+
+        let child1 = MockElement::new(40.0, 20.0);
+        let child2 = MockElement::new(40.0, 20.0);
+        let child3 = MockElement::new(40.0, 20.0);
+        let child4 = MockElement::new(40.0, 20.0);
+        let children: &[(&str, &dyn Element)] = &[
+            ("child1", &child1),
+            ("child2", &child2),
+            ("child3", &child3),
+            ("child4", &child4),
+        ];
+
+        let grid = GridLayout::new(children);
+        let base_pos = Vector2::new(50.0, 50.0);
+        grid.draw(base_pos, &style, "grid");
+
+        let pos1 = child1.draw_positions.borrow()[0];
+        let pos2 = child2.draw_positions.borrow()[0];
+        let pos3 = child3.draw_positions.borrow()[0];
+        let pos4 = child4.draw_positions.borrow()[0];
+
+        // child1 (row 0, col 0): base (50, 50)
+        assert_eq!(pos1.x, 50.0);
+        assert_eq!(pos1.y, 50.0);
+
+        // child2 (row 0, col 1): col 1 x = 50 + 100 + 20 = 170.0; align center: 170 + (100 - 40)/2 = 200.0, y = 50.0
+        assert_eq!(pos2.x, 200.0);
+        assert_eq!(pos2.y, 50.0);
+
+        // child3 (row 1, col 0): col 0 x = 50.0; row 1 y = 50 + 60 + 10 = 120.0; valign center: 120 + (60 - 20)/2 = 140.0
+        assert_eq!(pos3.x, 50.0);
+        assert_eq!(pos3.y, 140.0);
+
+        // child4 (row 1, col 1): col 1 x = 170.0; align right: 170 + 100 - 40 = 230.0; row 1 y = 120.0; valign bottom: 120 + 60 - 20 = 160.0
+        assert_eq!(pos4.x, 230.0);
+        assert_eq!(pos4.y, 160.0);
+    }
+
+    #[test]
+    fn test_grid_layout_edge_cases() {
+        let style = parse_str(
+            r#"
+            grid = {
+                columns = 2,
+                gap = 5.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        // 0 children
+        {
+            let children: &[(&str, &dyn Element)] = &[];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            assert_eq!(size.x, 0.0);
+            assert_eq!(size.y, 0.0);
+        }
+
+        // 1 child
+        {
+            let c1 = MockElement::new(30.0, 25.0);
+            let children: &[(&str, &dyn Element)] = &[("c1", &c1)];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            assert_eq!(size.x, 30.0);
+            assert_eq!(size.y, 25.0);
+        }
+
+        // 3 children in 2 cols (odd items)
+        {
+            let c1 = MockElement::new(30.0, 20.0);
+            let c2 = MockElement::new(30.0, 20.0);
+            let c3 = MockElement::new(30.0, 20.0);
+            let children: &[(&str, &dyn Element)] = &[("c1", &c1), ("c2", &c2), ("c3", &c3)];
+            let grid = GridLayout::new(children);
+            let size = grid.measure(&style, "grid");
+            // 2 cols: 2 * 30 + 5 = 65.0
+            // 2 rows: 2 * 20 + 5 = 45.0
+            assert_eq!(size.x, 65.0);
+            assert_eq!(size.y, 45.0);
+        }
+    }
+
+    #[test]
+    fn test_element_culling_on_and_off_screen() {
+        set_viewport(800.0, 600.0, 800.0, 600.0);
+        let style = parse_str(
+            r#"
+            visible_elem = {
+                left = 100,
+                top = 100,
+            },
+            offscreen_elem = {
+                left = 2000,
+                top = 2000,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let elem_on = MockElement::new(50.0, 50.0);
+        elem_on.place(&style, "visible_elem");
+        assert_eq!(elem_on.draw_positions.borrow().len(), 1);
+
+        let elem_off = MockElement::new(50.0, 50.0);
+        elem_off.place(&style, "offscreen_elem");
+        assert_eq!(elem_off.draw_positions.borrow().len(), 0);
+    }
+
+    #[test]
+    fn test_render_texture_element_measure_and_style() {
+        let style = parse_str(
+            r#"
+            rt_default = {},
+            rt_scaled = {
+                scale = 2.0,
+            },
+            rt_explicit = {
+                width = 512.0,
+                height = 256.0,
+            },
+            "#,
+        )
+        .unwrap();
+
+        let target = RenderTexture {
+            id: 1,
+            texture: Texture {
+                id: 1,
+                width: 100,
+                height: 100,
+                mipmaps: 1,
+                format: 7,
+            },
+            depth: Texture::default(),
+        };
+
+        let elem = RenderTextureElement::new(target);
+
+        // Default measure should match texture dimensions
+        let size_default = elem.measure(&style, "rt_default");
+        assert_eq!(size_default.x, 100.0);
+        assert_eq!(size_default.y, 100.0);
+
+        // Scaled measure
+        let size_scaled = elem.measure(&style, "rt_scaled");
+        assert_eq!(size_scaled.x, 200.0);
+        assert_eq!(size_scaled.y, 200.0);
+
+        // Explicit width/height override
+        let size_explicit = elem.measure(&style, "rt_explicit");
+        assert_eq!(size_explicit.x, 512.0);
+        assert_eq!(size_explicit.y, 256.0);
+
+        // Invalid element defaults to 0x0 unless explicit width/height
+        let invalid_elem = RenderTextureElement::invalid();
+        assert_eq!(invalid_elem.measure(&style, "rt_default").x, 0.0);
+        assert_eq!(invalid_elem.measure(&style, "rt_explicit").x, 512.0);
     }
 }

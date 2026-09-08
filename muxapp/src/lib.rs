@@ -27,56 +27,23 @@
 
 use std::path::{Path, PathBuf};
 
-use muxengine::{EngineController, GameState};
-use muxutils::gss::{Gss, load_gss_from_file, Object};
+use muxutils::gss::{Gss, load_gss_from_file};
 use notify::Watcher;
 
-pub use muxengine;
 pub use muxui;
 
 use muxui::*;
 
-/// The application context wrapping both the user-defined state and the point-and-click engine.
-///
-/// It acts as the primary interface for callbacks to inspect or mutate both
-/// the custom application state and the active game engine controller.
-pub struct Context<State> {
-    state: State,
-    engine: EngineController,
-}
-
-impl<State> Context<State> {
-    /// Returns a shared reference to the user-defined application state.
-    pub fn data(&self) -> &State {
-        &self.state
-    }
-
-    /// Returns a shared reference to the underlying engine controller.
-    pub fn engine(&self) -> &EngineController {
-        &self.engine
-    }
-
-    /// Returns a mutable reference to the underlying engine controller.
-    pub fn engine_mut(&mut self) -> &mut EngineController {
-        &mut self.engine
-    }
-
-    /// Returns a mutable reference to the user-defined application state.
-    pub fn state_mut(&mut self) -> &mut State {
-        &mut self.state
-    }
-}
-
-struct Manager<AppState> {
-    update: Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>,
-    load: Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>,
-    script_hook: Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>,
+struct Manager<Context> {
+    update: Box<dyn Fn(&mut Context, &Style) + 'static>,
+    load: Box<dyn Fn(&mut Context, &Style) + 'static>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
-    context: Context<AppState>,
+    context: Context,
     virtual_width: i32,
     virtual_height: i32,
+    responsive: bool,
 }
 
 /// The main application runner that initializes the Raylib window, sets up event loops,
@@ -84,24 +51,23 @@ struct Manager<AppState> {
 ///
 /// # Type Parameters
 ///
-/// * `AppState` - The application-defined state type passed to callbacks.
-pub struct App<AppState> {
+/// * `Context` - The application-defined context type passed to callbacks.
+pub struct App<Context> {
     width: i32,
     height: i32,
     virtual_width: i32,
     virtual_height: i32,
+    responsive: bool,
     title: String,
-    update: Option<Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>>,
-    load: Option<Box<dyn Fn(&mut Context<AppState>, &Style) + 'static>>,
-    script_hook: Option<Box<dyn Fn(&mut GameState, &str) -> Option<String> + 'static>>,
+    update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
+    load: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
     style_file: Option<PathBuf>,
-    initial_scene: Option<String>,
     fps: i32,
     audio_device: bool,
-    init_state: Box<dyn FnOnce() -> AppState + 'static>,
+    init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
-impl<AppState> App<AppState> {
+impl<Context> App<Context> {
     /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
     ///
     /// # Arguments
@@ -109,28 +75,45 @@ impl<AppState> App<AppState> {
     /// * `width` - The width of the application window in pixels.
     /// * `height` - The height of the application window in pixels.
     /// * `title` - The title of the application window.
-    /// * `init_state` - A closure that generates the initial application-defined state.
-    pub fn init<F: FnOnce() -> AppState + 'static>(
+    /// * `init_context` - A closure that generates the initial application-defined context.
+    pub fn init<F: FnOnce() -> Context + 'static>(
         width: i32,
         height: i32,
         title: impl Into<String>,
-        init_state: F,
+        init_context: F,
     ) -> Self {
         Self {
             width,
             height,
             virtual_width: width,
             virtual_height: height,
+            responsive: false,
             title: title.into(),
             update: None,
             load: None,
-            script_hook: None,
             style_file: None,
-            initial_scene: None,
             fps: muxutils::DEFAULT_FPS,
             audio_device: false,
-            init_state: Box::new(init_state),
+            init_context: Box::new(init_context),
         }
+    }
+}
+
+impl<Context> App<Context> {
+    /// Enables or disables dynamic responsive screen resizing.
+    ///
+    /// When responsive mode is enabled (`true`), the internal virtual render canvas dynamically resizes
+    /// to match the physical window resolution whenever the window is resized.
+    ///
+    /// When responsive mode is disabled (`false`, the default), the virtual resolution remains fixed,
+    /// and window resizing maintains the aspect ratio with letterboxing/pillarboxing.
+    ///
+    /// # Arguments
+    ///
+    /// * `responsive` - `true` to enable dynamic screen sizing, `false` for fixed letterboxed virtual resolution.
+    pub fn set_responsive(mut self, responsive: bool) -> Self {
+        self.responsive = responsive;
+        self
     }
 
     /// Sets the fixed internal virtual resolution for rendering offscreen textures.
@@ -161,7 +144,7 @@ impl<AppState> App<AppState> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_update<F: Fn(&mut Context<AppState>, &Style) + 'static>(mut self, f: F) -> Self {
+    pub fn on_update<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.update = Some(Box::new(f));
         self
     }
@@ -173,7 +156,7 @@ impl<AppState> App<AppState> {
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_load<F: Fn(&mut Context<AppState>, &Style) + 'static>(mut self, f: F) -> Self {
+    pub fn on_load<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.load = Some(Box::new(f));
         self
     }
@@ -201,30 +184,20 @@ impl<AppState> App<AppState> {
         self
     }
 
-    /// Set an optional hook to run custom script triggers.
-    pub fn set_script_hook<F>(mut self, hook: F) -> Self
-    where
-        F: Fn(&mut GameState, &str) -> Option<String> + 'static,
-    {
-        self.script_hook = Some(Box::new(hook));
-        self
-    }
-
-    fn build(self) -> Manager<AppState> {
+    fn build(self) -> Manager<Context> {
         let Self {
             width,
             height,
             virtual_width,
             virtual_height,
+            responsive,
             title,
             update,
             load,
             style_file,
             fps,
             audio_device,
-            init_state,
-            initial_scene,
-            script_hook,
+            init_context,
         } = self;
         log_info!(
             "MUX: Initializing window: {}x{} (Virtual: {}x{}) - \"{}\"",
@@ -234,7 +207,7 @@ impl<AppState> App<AppState> {
             virtual_height,
             title
         );
-        unsafe { SetConfigFlags(FLAG_WINDOW_RESIZABLE as u32) };
+        set_config_flags(&[FLAG_WINDOW_RESIZABLE]);
         init_window(width, height, cstr!(&title));
         if audio_device {
             log_info!("MUX: Initializing audio device");
@@ -244,27 +217,16 @@ impl<AppState> App<AppState> {
         Manager {
             update: update.unwrap_or(Box::new(|_, _| {})),
             load: load.unwrap_or(Box::new(|_, _| {})),
-            script_hook: script_hook.unwrap_or(Box::new(|_, _| None)),
             style_file,
             fps,
             audio_device,
-            context: Context {
-                state: init_state(),
-                engine: EngineController::new(initial_scene.unwrap_or_default()),
-            },
+            context: init_context(),
             virtual_width,
             virtual_height,
+            responsive,
         }
     }
 
-    /// Sets the inital scene for the engine
-    pub fn set_initial_scene(mut self, initial_scene: impl ToString) -> Self {
-        self.initial_scene = Some(initial_scene.to_string());
-        self
-    }
-}
-
-impl<AppContext> App<AppContext> {
     /// Runs the main application loop.
     ///
     /// This method builds the application manager, initializes the Raylib window,
@@ -279,18 +241,17 @@ impl<AppContext> App<AppContext> {
             fps,
             audio_device,
             mut context,
-            script_hook,
-            virtual_width,
-            virtual_height,
+            mut virtual_width,
+            mut virtual_height,
+            responsive,
         } = self.build();
         set_target_fps(fps);
 
-        let target = load_render_texture(virtual_width, virtual_height);
+        let mut target = load_render_texture(virtual_width, virtual_height);
 
         let (tx, rx) = std::sync::mpsc::channel();
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
 
-        context.engine.set_script_hook(script_hook);
         load(&mut context, &style);
 
         // 1. Declare the watcher OUTSIDE the block so it lives longer
@@ -305,12 +266,11 @@ impl<AppContext> App<AppContext> {
 
                 if let Ok(mut w) =
                     notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                        if let Ok(event) = res {
-                            if event.paths.iter().any(|p| p == &abs_path_clone) {
-                                if event.kind.is_modify() || event.kind.is_create() {
-                                    let _ = tx_clone.send(());
-                                }
-                            }
+                        if let Ok(event) = res
+                            && event.paths.iter().any(|p| p == &abs_path_clone)
+                            && (event.kind.is_modify() || event.kind.is_create())
+                        {
+                            let _ = tx_clone.send(());
                         }
                     })
                 {
@@ -332,13 +292,32 @@ impl<AppContext> App<AppContext> {
         }
 
         while !window_should_close() {
-            let window_w = get_screen_width() as f32;
-            let window_h = get_screen_height() as f32;
+            let window_w = get_screen_width();
+            let window_h = get_screen_height();
+
+            if responsive {
+                let target_w = window_w.max(1);
+                let target_h = window_h.max(1);
+                if target_w != virtual_width || target_h != virtual_height {
+                    virtual_width = target_w;
+                    virtual_height = target_h;
+                    if is_render_texture_valid(target) {
+                        unload_render_texture(target);
+                    }
+                    target = load_render_texture(virtual_width, virtual_height);
+                    log_info!(
+                        "MUX: Window resized, updated virtual resolution to {}x{}",
+                        virtual_width,
+                        virtual_height
+                    );
+                }
+            }
+
             muxutils::set_viewport(
                 virtual_width as f32,
                 virtual_height as f32,
-                window_w,
-                window_h,
+                window_w as f32,
+                window_h as f32,
             );
 
             if is_key_pressed(KEY_F5) {
@@ -358,19 +337,6 @@ impl<AppContext> App<AppContext> {
 
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
-
-            // Automatically render the active scene's background texture
-            let view = context.engine.current_view(&style);
-            let scene_style_path = ["scenes", &view.scene_id];
-            if let Some(scene_style) = style.get::<Object>(&scene_style_path) {
-                let bg_el = TextureElement::new(&view.background_texture);
-                bg_el.place(scene_style, "background");
-            } else {
-                let texture = get_cached_texture(&view.background_texture);
-                if is_texture_valid(texture) {
-                    draw_texture_ex(texture, Vector2::zero(), 0.0, 1.0, WHITE);
-                }
-            }
 
             update(&mut context, &style);
             end_texture_mode();

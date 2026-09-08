@@ -237,6 +237,14 @@ pub fn check_collision_circle_rec(center: Vector2, radius: f32, rec: Rectangle) 
     unsafe { CheckCollisionCircleRec(center, radius, rec) }
 }
 
+pub fn check_collision_recs(rec1: Rectangle, rec2: Rectangle) -> bool {
+    unsafe { CheckCollisionRecs(rec1, rec2) }
+}
+
+pub fn check_collision_point_rec(point: Vector2, rec: Rectangle) -> bool {
+    unsafe { CheckCollisionPointRec(point, rec) }
+}
+
 pub fn is_texture_valid(texture: Texture2D) -> bool {
     unsafe { IsTextureValid(texture) }
 }
@@ -248,6 +256,24 @@ pub fn unload_texture(texture: Texture2D) {
 }
 pub fn get_fps() -> i32 {
     unsafe { GetFPS() }
+}
+pub fn draw_circle(centerX: i32, centerY: i32, radius: f32, color: Color) {
+    unsafe {
+        DrawCircle(centerX, centerY, radius, color);
+    }
+}
+pub fn draw_rectangle_v(position: Vector2, size: Vector2, color: Color) {
+    unsafe {
+        DrawRectangleV(position, size, color);
+    }
+}
+pub fn draw_rectangle_rec(rec: Rectangle, color: Color) {
+    unsafe {
+        DrawRectangleRec(rec, color);
+    }
+}
+pub fn is_window_ready() -> bool {
+    unsafe { IsWindowReady() }
 }
 
 pub fn draw_texture_ex(
@@ -287,12 +313,83 @@ pub fn unload_render_texture(target: RenderTexture2D) {
     unsafe { UnloadRenderTexture(target) }
 }
 
+use std::cell::RefCell;
+
+thread_local! {
+    static RENDER_TEXTURE_STACK: RefCell<Vec<RenderTexture2D>> = const { RefCell::new(Vec::new()) };
+}
+
 pub fn begin_texture_mode(target: RenderTexture2D) {
-    unsafe { BeginTextureMode(target) }
+    RENDER_TEXTURE_STACK.with(|stack| {
+        stack.borrow_mut().push(target);
+    });
+    unsafe {
+        rlgl::rlDrawRenderBatchActive();
+        rlgl::rlEnableFramebuffer(target.id);
+        rlgl::rlViewport(0, 0, target.texture.width, target.texture.height);
+
+        rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+        rlgl::rlLoadIdentity();
+        rlgl::rlOrtho(
+            0.0,
+            target.texture.width as f64,
+            target.texture.height as f64,
+            0.0,
+            0.0,
+            1.0,
+        );
+
+        rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+        rlgl::rlLoadIdentity();
+    }
 }
 
 pub fn end_texture_mode() {
-    unsafe { EndTextureMode() }
+    let prev = RENDER_TEXTURE_STACK.with(|stack| {
+        let mut s = stack.borrow_mut();
+        s.pop();
+        s.last().copied()
+    });
+
+    unsafe {
+        rlgl::rlDrawRenderBatchActive();
+
+        if let Some(target) = prev {
+            rlgl::rlEnableFramebuffer(target.id);
+            rlgl::rlViewport(0, 0, target.texture.width, target.texture.height);
+
+            rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+            rlgl::rlLoadIdentity();
+            rlgl::rlOrtho(
+                0.0,
+                target.texture.width as f64,
+                target.texture.height as f64,
+                0.0,
+                0.0,
+                1.0,
+            );
+
+            rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+            rlgl::rlLoadIdentity();
+        } else {
+            rlgl::rlDisableFramebuffer();
+            rlgl::rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+
+            rlgl::rlMatrixMode(rlgl::RL_PROJECTION as i32);
+            rlgl::rlLoadIdentity();
+            rlgl::rlOrtho(
+                0.0,
+                GetScreenWidth() as f64,
+                GetScreenHeight() as f64,
+                0.0,
+                0.0,
+                1.0,
+            );
+
+            rlgl::rlMatrixMode(rlgl::RL_MODELVIEW as i32);
+            rlgl::rlLoadIdentity();
+        }
+    }
 }
 
 // Some Basic Colors
@@ -505,9 +602,6 @@ impl PartialEq for Vector2 {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y
     }
-    fn ne(&self, other: &Self) -> bool {
-        self.x != other.x || self.y != other.y
-    }
 }
 
 impl Eq for Vector2 {}
@@ -561,6 +655,16 @@ impl Default for Texture {
             height: 0,
             mipmaps: 0,
             format: 0,
+        }
+    }
+}
+
+impl Default for RenderTexture {
+    fn default() -> Self {
+        RenderTexture {
+            id: 0,
+            texture: Texture::default(),
+            depth: Texture::default(),
         }
     }
 }

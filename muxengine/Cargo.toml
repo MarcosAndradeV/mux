@@ -1,7 +1,0 @@
-[package]
-name = "muxengine"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-muxutils = { path = "../muxutils", version = "0.1.0" }

@@ -6,5 +6,4 @@ edition = "2024"
 [dependencies]
 notify = "8.2.0"
 muxui = { path = "../muxui", version = "0.1.0" }
-muxengine = { path = "../muxengine", version = "0.1.0" }
 muxutils = { path = "../muxutils", version = "0.1.0" }

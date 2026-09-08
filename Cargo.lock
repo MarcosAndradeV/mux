@@ -87,6 +87,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "gss"
 version = "0.1.0"
+source = "git+https://github.com/MarcosAndradeV/GSS#02be6b3620c83ccdd2a68cfbbfcac9226df41ff9"
 dependencies = [
  "lex-just-parse",
 ]
@@ -196,17 +197,9 @@ dependencies = [
 name = "muxapp"
 version = "0.1.0"
 dependencies = [
- "muxengine",
  "muxui",
  "muxutils",
  "notify",
-]
-
-[[package]]
-name = "muxengine"
-version = "0.1.0"
-dependencies = [
- "muxutils",
 ]
 
 [[package]]
@@ -356,13 +349,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "text_mux"
-version = "0.1.0"
-dependencies = [
- "muxapp",
 ]
 
 [[package]]
