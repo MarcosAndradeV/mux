@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-point-and-click = []
 
 [dependencies]
 muxutils = { path = "../muxutils", version = "0.1.0" }
-notify = "8.2.0"

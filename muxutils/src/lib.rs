@@ -6,7 +6,6 @@ pub const DEFAULT_FONT_SIZE: f32 = 20.0;
 pub const DEFAULT_SPACING: f32 = 2.0;
 pub const DEFAULT_SCALE: f32 = 1.0;
 pub const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
-pub const MOUSE_CLICK_RADIUS: f32 = 2.0;
 pub const DEFAULT_FPS: i32 = 24;
 
 /// Raylib trace logging function wrapper.
@@ -279,15 +278,25 @@ pub fn get_f32_field(obj: &gss::Object, path: &[&str], default: f32) -> f32 {
 ///
 /// Returns `default` if the field is not present.
 pub fn get_relative_field(obj: &gss::Object, path: &[&str], scale: f32, default: f32) -> f32 {
+    get_optional_relative_field(obj, path, scale).unwrap_or(default)
+}
+
+/// Retrieves an optional relative coordinate or float property from the stylesheet [`Style`].
+///
+/// - If the retrieved value is a percentage (e.g. `80%`) or float (e.g. `0.8`), it is scaled by `scale`.
+/// - If the retrieved value is an exact integer literal (e.g. `120`), it is treated as absolute pixels.
+///
+/// Returns `None` if the field is not present in the style.
+pub fn get_optional_relative_field(obj: &gss::Object, path: &[&str], scale: f32) -> Option<f32> {
     let norm = normalize_path(path);
     if let Some(&val) = obj.get::<u32>(&norm) {
-        val as f32
+        Some(val as f32)
     } else if let Some(&val) = obj.get::<i32>(&norm) {
-        val as f32
+        Some(val as f32)
     } else if let Some(&val) = obj.get::<f32>(&norm) {
-        val * scale
+        Some(val * scale)
     } else {
-        default
+        None
     }
 }
 
@@ -488,6 +497,18 @@ mod tests {
         assert_eq!(
             get_relative_field(&style, &["btn", "pixel_offset"], 800.0, 0.0),
             150.0
+        );
+        assert_eq!(
+            get_optional_relative_field(&style, &["btn", "scale"], 800.0),
+            Some(400.0)
+        );
+        assert_eq!(
+            get_optional_relative_field(&style, &["btn", "pixel_offset"], 800.0),
+            Some(150.0)
+        );
+        assert_eq!(
+            get_optional_relative_field(&style, &["btn", "missing"], 800.0),
+            None
         );
 
         // String and usize resolution

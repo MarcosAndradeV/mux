@@ -11,15 +11,12 @@
 //! use muxapp::*;
 //! use muxapp::muxui::*;
 //!
-//! struct AppContext;
 //!
 //! fn main() {
-//!     App::init(800, 600, "My App", || AppContext)
+//!     App::new(800, 600, "My App")
 //!         .on_update(|ctx, style| {
-//!             begin_drawing();
 //!             clear_background(get_color(0x181818FF));
 //!             TextElement::new("Hello, Muxui!").place(style, "title");
-//!             end_drawing();
 //!         })
 //!         .run();
 //! }
@@ -67,8 +64,24 @@ pub struct App<Context> {
     init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
+impl App<()> {
+    /// Initializes a new [`App`] instance with the specified window dimensions and title,
+    /// with an empty unit context `()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The width of the application window in pixels.
+    /// * `height` - The height of the application window in pixels.
+    /// * `title` - The title of the application window.
+    pub fn new(width: i32, height: i32, title: impl Into<String>) -> Self {
+        Self::init(width, height, title, || ())
+    }
+}
+
 impl<Context> App<Context> {
     /// Initializes a new [`App`] instance with the specified window dimensions, title, and initial context.
+    ///
+    /// Responsive dynamic resizing is enabled (`true`) by default.
     ///
     /// # Arguments
     ///
@@ -87,7 +100,7 @@ impl<Context> App<Context> {
             height,
             virtual_width: width,
             virtual_height: height,
-            responsive: false,
+            responsive: true,
             title: title.into(),
             update: None,
             load: None,
@@ -102,10 +115,10 @@ impl<Context> App<Context> {
 impl<Context> App<Context> {
     /// Enables or disables dynamic responsive screen resizing.
     ///
-    /// When responsive mode is enabled (`true`), the internal virtual render canvas dynamically resizes
+    /// When responsive mode is enabled (`true`, the default), the internal virtual render canvas dynamically resizes
     /// to match the physical window resolution whenever the window is resized.
     ///
-    /// When responsive mode is disabled (`false`, the default), the virtual resolution remains fixed,
+    /// When responsive mode is disabled (`false`), the virtual resolution remains fixed,
     /// and window resizing maintains the aspect ratio with letterboxing/pillarboxing.
     ///
     /// # Arguments
@@ -149,16 +162,21 @@ impl<Context> App<Context> {
         self
     }
 
-    /// Sets the callback function to run when the style file is reloaded.
-    ///
-    /// The callback receives the mutable context and the newly loaded style.
+    /// Sets the callback function to run when the stylesheet is loaded or reloaded.
     ///
     /// # Arguments
     ///
     /// * `f` - A closure that accepts the mutable application context and style context.
-    pub fn on_load<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
+    pub fn on_style_reload<F: Fn(&mut Context, &Style) + 'static>(mut self, f: F) -> Self {
         self.load = Some(Box::new(f));
         self
+    }
+
+    /// Sets the callback function to run when the style file is reloaded.
+    ///
+    /// Compatibility alias for [`on_style_reload`].
+    pub fn on_load<F: Fn(&mut Context, &Style) + 'static>(self, f: F) -> Self {
+        self.on_style_reload(f)
     }
 
     /// Sets the file path for the style sheet configuration.
@@ -320,17 +338,17 @@ impl<Context> App<Context> {
                 window_h as f32,
             );
 
+            let mut should_reload = false;
             if is_key_pressed(KEY_F5) {
                 log_info!("MUX: F5 pressed. Reloading style...");
-                style = load_style_fallback(style_file.as_ref(), style);
+                should_reload = true;
             }
 
-            let mut should_reload = false;
             while rx.try_recv().is_ok() {
                 should_reload = true;
             }
             if should_reload {
-                log_info!("MUX: Style file modified. Reloading style...");
+                log_info!("MUX: Style reloaded.");
                 style = load_style_fallback(style_file.as_ref(), style);
                 load(&mut context, &style);
             }
@@ -398,7 +416,7 @@ mod tests {
         assert_eq!(app.height, 600);
         assert_eq!(app.virtual_width, 800);
         assert_eq!(app.virtual_height, 600);
-        assert!(!app.responsive);
+        assert!(app.responsive);
         assert_eq!(app.title, "Default App");
         assert_eq!(app.fps, muxutils::DEFAULT_FPS);
         assert!(!app.audio_device);
@@ -409,9 +427,18 @@ mod tests {
     }
 
     #[test]
+    fn test_app_new() {
+        let app = App::new(800, 600, "Simple App");
+        assert_eq!(app.width, 800);
+        assert_eq!(app.height, 600);
+        assert!(app.responsive);
+        assert_eq!((app.init_context)(), ());
+    }
+
+    #[test]
     fn test_app_builder_methods() {
         let app = App::init(640, 480, "Configured App", || String::from("context"))
-            .set_responsive(true)
+            .set_responsive(false)
             .set_virtual_resolution(1920, 1080)
             .set_audio_device()
             .set_fps(60)
@@ -419,15 +446,15 @@ mod tests {
             .on_update(|ctx, _style| {
                 ctx.push_str("_updated");
             })
-            .on_load(|ctx, _style| {
-                ctx.push_str("_loaded");
+            .on_style_reload(|ctx, _style| {
+                ctx.push_str("_reloaded");
             });
 
         assert_eq!(app.width, 640);
         assert_eq!(app.height, 480);
         assert_eq!(app.virtual_width, 1920);
         assert_eq!(app.virtual_height, 1080);
-        assert!(app.responsive);
+        assert!(!app.responsive);
         assert_eq!(app.title, "Configured App");
         assert_eq!(app.fps, 60);
         assert!(app.audio_device);

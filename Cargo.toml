@@ -3,7 +3,7 @@
 members = [
     "muxui",
     "muxapp",
-    "muxutils",
+    "muxutils", "muxtest",
 ]
 
 resolver = "3"

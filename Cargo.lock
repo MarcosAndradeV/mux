@@ -203,11 +203,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "muxtest"
+version = "0.1.0"
+dependencies = [
+ "muxapp",
+]
+
+[[package]]
 name = "muxui"
 version = "0.1.0"
 dependencies = [
  "muxutils",
- "notify",
 ]
 
 [[package]]
