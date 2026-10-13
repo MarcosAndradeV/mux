@@ -9,6 +9,49 @@ pub const DEBUG_FRAME_LINE_THICK: f32 = 2.0;
 pub const MOUSE_CLICK_RADIUS: f32 = 2.0;
 pub const DEFAULT_FPS: i32 = 24;
 
+/// Raylib trace logging function wrapper.
+pub fn trace_log(level: raylib::TraceLogLevel, message: &str) {
+    let c_msg = std::ffi::CString::new(message).unwrap_or_default();
+    unsafe {
+        raylib::TraceLog(level as std::os::raw::c_int, c"%s".as_ptr(), c_msg.as_ptr());
+    }
+}
+
+#[macro_export]
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::raylib::LOG_INFO, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_warn {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::raylib::LOG_WARNING, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::raylib::LOG_ERROR, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_debug {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::raylib::LOG_DEBUG, &format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! log_trace {
+    ($($arg:tt)*) => {
+        $crate::trace_log($crate::raylib::LOG_TRACE, &format!($($arg)*))
+    };
+}
+
 /// Represents the virtual viewport scaling configuration for aspect-preserved resolution.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewportState {
@@ -138,7 +181,7 @@ pub fn is_rect_on_screen(rec: raylib::Rectangle) -> bool {
     if rec.width <= 0.0 || rec.height <= 0.0 {
         rec.x >= 0.0 && rec.x <= screen.width && rec.y >= 0.0 && rec.y <= screen.height
     } else {
-        raylib::check_collision_recs(rec, screen)
+        check_collision_recs(rec, screen)
     }
 }
 
@@ -181,7 +224,11 @@ pub fn map_color(string: &str) -> raylib::Color {
 pub fn get_color_field(obj: &gss::Object, path: &[&str], default: raylib::Color) -> raylib::Color {
     if let Some(string) = obj.get::<String>(path) {
         let mapped = map_color(string);
-        if mapped != raylib::BLANK || string.eq_ignore_ascii_case("blank") {
+        if !{
+            let c2 = raylib::BLANK;
+            mapped == c2
+        } || string.eq_ignore_ascii_case("blank")
+        {
             return mapped;
         }
     }
@@ -257,6 +304,92 @@ pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usiz
     } else {
         default
     }
+}
+
+/// Returns true if the window has been initialized successfully.
+pub fn is_window_ready() -> bool {
+    unsafe { raylib::IsWindowReady() }
+}
+
+/// Returns true if the render texture is valid (GPU framebuffer allocated).
+pub fn is_render_texture_valid(target: raylib::RenderTexture2D) -> bool {
+    unsafe { raylib::IsRenderTextureValid(target) }
+}
+
+/// Unloads render texture from GPU memory (framebuffer).
+pub fn unload_render_texture(target: raylib::RenderTexture2D) {
+    unsafe {
+        raylib::UnloadRenderTexture(target);
+    }
+}
+
+/// Loads a render texture (framebuffer) with the given dimensions.
+pub fn load_render_texture(width: i32, height: i32) -> raylib::RenderTexture2D {
+    unsafe { raylib::LoadRenderTexture(width, height) }
+}
+
+/// Initializes render texture for drawing.
+pub fn begin_texture_mode(target: raylib::RenderTexture2D) {
+    unsafe {
+        raylib::BeginTextureMode(target);
+    }
+}
+
+/// Ends drawing to render texture.
+pub fn end_texture_mode() {
+    unsafe {
+        raylib::EndTextureMode();
+    }
+}
+
+/// Draws a part of a texture (defined by a rectangle) with 'pro' parameters.
+pub fn draw_texture_pro(
+    texture: raylib::Texture2D,
+    source: raylib::Rectangle,
+    dest: raylib::Rectangle,
+    origin: raylib::Vector2,
+    rotation: f32,
+    tint: raylib::Color,
+) {
+    unsafe {
+        raylib::DrawTexturePro(texture, source, dest, origin, rotation, tint);
+    }
+}
+
+/// Draws a rectangle with a `Rectangle` struct.
+pub fn draw_rectangle_rec(rec: raylib::Rectangle, color: raylib::Color) {
+    unsafe {
+        raylib::DrawRectangleRec(rec, color);
+    }
+}
+
+/// Draws a rectangle using Vector2 position and size.
+pub fn draw_rectangle_v(position: raylib::Vector2, size: raylib::Vector2, color: raylib::Color) {
+    unsafe {
+        raylib::DrawRectangleV(position, size, color);
+    }
+}
+
+/// Checks collision between two rectangles.
+pub fn check_collision_recs(rec1: raylib::Rectangle, rec2: raylib::Rectangle) -> bool {
+    unsafe { raylib::CheckCollisionRecs(rec1, rec2) }
+}
+
+/// Checks collision between point and rectangle.
+pub fn check_collision_point_rec(point: raylib::Vector2, rec: raylib::Rectangle) -> bool {
+    unsafe { raylib::CheckCollisionPointRec(point, rec) }
+}
+
+/// Draws a circle with integer center and float radius.
+pub fn draw_circle(center_x: i32, center_y: i32, radius: f32, color: raylib::Color) {
+    unsafe {
+        raylib::DrawCircle(center_x, center_y, radius, color);
+    }
+}
+
+/// Loads a texture from an Image.
+pub fn load_texture_from_image(image: raylib::Image) -> raylib::Texture2D {
+    unsafe { raylib::LoadTextureFromImage(image) }
 }
 
 #[cfg(test)]

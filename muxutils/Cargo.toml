@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 gss = { git = "https://github.com/MarcosAndradeV/GSS", version = "0.1.0", features = ["interning"] }
-raylib = { path = "../raylib-rs", version = "0.1.0" }
+raylib = { workspace = true }

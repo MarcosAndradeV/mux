@@ -189,6 +189,7 @@ impl Element for TextElement {
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem::zeroed;
 
 thread_local! {
     static TEXTURE_CACHE: RefCell<HashMap<String, Texture2D>> = RefCell::new(HashMap::new());
@@ -199,7 +200,7 @@ thread_local! {
 /// This is safe and performant for single-threaded rendering in Raylib.
 pub fn get_cached_texture(path: &str) -> Texture2D {
     if path.is_empty() {
-        return Texture2D::default();
+        return unsafe { zeroed() };
     }
     TEXTURE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -327,7 +328,7 @@ impl RenderTextureElement {
     /// Creates an empty placeholder `RenderTextureElement`.
     pub fn invalid() -> Self {
         Self {
-            target: RenderTexture::default(),
+            target: unsafe { zeroed() },
         }
     }
 
@@ -351,7 +352,7 @@ impl RenderTextureElement {
     pub fn unload(&mut self) {
         if is_window_ready() && is_render_texture_valid(self.target) {
             unload_render_texture(self.target);
-            self.target = RenderTexture::default();
+            self.target = unsafe { zeroed() };
         }
     }
 }
@@ -1855,7 +1856,7 @@ mod tests {
                 mipmaps: 1,
                 format: 7,
             },
-            depth: Texture::default(),
+            depth: unsafe { std::mem::zeroed() },
         };
 
         let elem = RenderTextureElement::new(target);
