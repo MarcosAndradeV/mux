@@ -897,8 +897,8 @@ impl Element for RectangleElement {
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
         Vector2::new(
-            style.get_or_default(&[name, "width"]),
-            style.get_or_default(&[name, "height"]),
+            get_f32_field(style, &[name, "width"], 0.0),
+            get_f32_field(style, &[name, "height"], 0.0),
         )
     }
 }
@@ -1006,8 +1006,9 @@ pub mod point_and_click {
             }
 
             // Draw hotspot label inside/above the bounds
-
-            if let Some(val) = style.get::<String>(&[name, "tooltip"]) {
+            let mut tooltip_path: Vec<&str> = name.split('.').collect();
+            tooltip_path.push("tooltip");
+            if let Some(val) = style.get::<String>(&tooltip_path) {
                 let label = format!("[{}]", val);
                 let bounds = self.get_rec(style, name);
 
@@ -1025,8 +1026,8 @@ pub mod point_and_click {
 
         fn measure(&self, style: &Style, name: &str) -> Vector2 {
             Vector2::new(
-                style.get_or_default(&[name, "width"]),
-                style.get_or_default(&[name, "height"]),
+                get_f32_field(style, &[name, "width"], 0.0),
+                get_f32_field(style, &[name, "height"], 0.0),
             )
         }
 
@@ -1127,8 +1128,8 @@ pub mod point_and_click {
 
         fn measure(&self, style: &Style, name: &str) -> Vector2 {
             Vector2::new(
-                style.get_or_default(&[name, "width"]),
-                style.get_or_default(&[name, "height"]),
+                get_f32_field(style, &[name, "width"], 0.0),
+                get_f32_field(style, &[name, "height"], 0.0),
             )
         }
     }
@@ -1197,8 +1198,8 @@ pub mod point_and_click {
 
         fn measure(&self, style: &Style, name: &str) -> Vector2 {
             Vector2::new(
-                style.get_or_default(&[name, "width"]),
-                style.get_or_default(&[name, "height"]),
+                get_f32_field(style, &[name, "width"], 0.0),
+                get_f32_field(style, &[name, "height"], 0.0),
             )
         }
     }
@@ -1880,5 +1881,202 @@ mod tests {
         let invalid_elem = RenderTextureElement::invalid();
         assert_eq!(invalid_elem.measure(&style, "rt_default").x, 0.0);
         assert_eq!(invalid_elem.measure(&style, "rt_explicit").x, 512.0);
+    }
+
+    #[test]
+    fn test_element_positioning_and_alignments() {
+        set_viewport(800.0, 600.0, 800.0, 600.0);
+        let style = parse_str(
+            r#"
+            left_top = {
+                left = 100,
+                top = 50,
+            },
+            center_valign = {
+                left = 200,
+                top = 200,
+                align = "center",
+                valign = "center",
+            },
+            right_bottom = {
+                left = 300,
+                top = 400,
+                align = "right",
+                valign = "bottom",
+            },
+            valign_middle = {
+                left = 100,
+                top = 100,
+                valign = "middle",
+            },
+            "#,
+        )
+        .unwrap();
+
+        let elem = MockElement::new(40.0, 20.0);
+        let pos1 = elem.get_position(&style, "left_top");
+        assert_eq!(pos1.x, 100.0);
+        assert_eq!(pos1.y, 50.0);
+        let rec1 = elem.get_rec(&style, "left_top");
+        assert_eq!(rec1.x, 100.0);
+        assert_eq!(rec1.y, 50.0);
+        assert_eq!(rec1.width, 40.0);
+        assert_eq!(rec1.height, 20.0);
+
+        // center: x -= 40/2 = 20 -> 180.0; valign center: y -= 20/2 = 10 -> 190.0
+        let pos2 = elem.get_position(&style, "center_valign");
+        assert_eq!(pos2.x, 180.0);
+        assert_eq!(pos2.y, 190.0);
+
+        // right: x -= 40 -> 260.0; valign bottom: y -= 20 -> 380.0
+        let pos3 = elem.get_position(&style, "right_bottom");
+        assert_eq!(pos3.x, 260.0);
+        assert_eq!(pos3.y, 380.0);
+
+        // valign middle: y -= 20/2 = 10 -> 90.0
+        let pos4 = elem.get_position(&style, "valign_middle");
+        assert_eq!(pos4.x, 100.0);
+        assert_eq!(pos4.y, 90.0);
+    }
+
+    #[test]
+    fn test_texture_element_lifecycle() {
+        let tex = TextureElement::new("test.png");
+        assert_eq!(tex.path, "test.png");
+
+        let loaded = TextureElement::load_from_file("player.png");
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().path, "player.png");
+
+        let empty = TextureElement::load_from_file("");
+        assert!(empty.is_none());
+
+        let invalid = TextureElement::invalid();
+        assert_eq!(invalid.path, "");
+
+        let style = Style::new();
+        let size = invalid.measure(&style, "missing");
+        assert_eq!(size.x, 0.0);
+        assert_eq!(size.y, 0.0);
+    }
+
+    #[test]
+    fn test_render_texture_element_methods() {
+        let target1 = RenderTexture {
+            id: 1,
+            texture: Texture {
+                id: 1,
+                width: 64,
+                height: 64,
+                mipmaps: 1,
+                format: 7,
+            },
+            depth: unsafe { std::mem::zeroed() },
+        };
+        let target2 = RenderTexture {
+            id: 2,
+            texture: Texture {
+                id: 2,
+                width: 128,
+                height: 128,
+                mipmaps: 1,
+                format: 7,
+            },
+            depth: unsafe { std::mem::zeroed() },
+        };
+
+        let mut elem = RenderTextureElement::new(target1);
+        assert_eq!(elem.target().id, 1);
+        assert_eq!(elem.target_mut().id, 1);
+
+        elem.set_target(target2);
+        assert_eq!(elem.target().id, 2);
+
+        // Unload when window is not ready is a safe no-op
+        elem.unload();
+    }
+
+    #[test]
+    fn test_button_element_event_and_key() {
+        let child = MockElement::new(50.0, 20.0);
+        let btn = ButtonElement::new_with_no_cached_rec(child);
+        assert_eq!(btn.event(), Event::None);
+
+        let plain_elem = MockElement::new(10.0, 10.0);
+        assert_eq!(plain_elem.event(), Event::None);
+
+        let mut btn_disabled = ButtonElement::new_with_no_cached_rec(MockElement::new(50.0, 20.0));
+        btn_disabled.set_disabled(true);
+        assert!(!btn_disabled.click_or_key(KeyboardKey::KEY_SPACE));
+    }
+
+    #[test]
+    fn test_layout_children_accessors() {
+        let child1 = MockElement::new(10.0, 10.0);
+        let child2 = MockElement::new(20.0, 20.0);
+        let children: &[(&str, &dyn Element)] = &[("c1", &child1), ("c2", &child2)];
+
+        let stack = StackLayout::new(children);
+        assert_eq!(stack.children().len(), 2);
+        assert_eq!(stack.children()[0].0, "c1");
+        assert_eq!(stack.children()[1].0, "c2");
+
+        let grid = GridLayout::new(children);
+        assert_eq!(grid.children().len(), 2);
+        assert_eq!(grid.children()[0].0, "c1");
+        assert_eq!(grid.children()[1].0, "c2");
+    }
+
+    #[cfg(feature = "point-and-click")]
+    #[test]
+    fn test_point_and_click_components() {
+        let style = parse_str(
+            r#"
+            dialogue = {
+                width = 600,
+                height = 150,
+            },
+            inventory = {
+                width = 400,
+                height = 50,
+            },
+            scenes = {
+                room1 = {
+                    hotspots = {
+                        door = {
+                            width = 80,
+                            height = 120,
+                            left = 200,
+                            top = 100,
+                            tooltip = "Wooden Door",
+                        },
+                    },
+                },
+            },
+            "#,
+        )
+        .unwrap();
+
+        let dialogue = DialogueElement::new("Detective", "The door is locked.");
+        assert_eq!(dialogue.speaker, "Detective");
+        assert_eq!(dialogue.text, "The door is locked.");
+        let d_size = dialogue.measure(&style, "dialogue");
+        assert_eq!(d_size.x, 600.0);
+        assert_eq!(d_size.y, 150.0);
+
+        let inv = InventoryElement::new(vec!["Key".to_string(), "Magnifier".to_string()]);
+        assert_eq!(inv.items.len(), 2);
+        assert_eq!(inv.items[0], "Key");
+        assert_eq!(inv.items[1], "Magnifier");
+        let inv_size = inv.measure(&style, "inventory");
+        assert_eq!(inv_size.x, 400.0);
+        assert_eq!(inv_size.y, 50.0);
+
+        let hotspot = HotspotElement::new_from_style(&style, "room1", "door");
+        assert_eq!(hotspot.path(), "scenes.room1.hotspots.door");
+        let hs_size = hotspot.measure(&style, hotspot.path());
+        assert_eq!(hs_size.x, 80.0);
+        assert_eq!(hs_size.y, 120.0);
+        assert_eq!(hotspot.event(), Event::None);
     }
 }

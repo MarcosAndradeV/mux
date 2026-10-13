@@ -386,3 +386,95 @@ fn load_style_fallback<P: AsRef<Path>>(style_file: Option<P>, fallback: Gss) -> 
     }
     fallback
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_init_defaults() {
+        let app = App::init(800, 600, "Default App", || 100);
+        assert_eq!(app.width, 800);
+        assert_eq!(app.height, 600);
+        assert_eq!(app.virtual_width, 800);
+        assert_eq!(app.virtual_height, 600);
+        assert!(!app.responsive);
+        assert_eq!(app.title, "Default App");
+        assert_eq!(app.fps, muxutils::DEFAULT_FPS);
+        assert!(!app.audio_device);
+        assert!(app.style_file.is_none());
+        assert!(app.update.is_none());
+        assert!(app.load.is_none());
+        assert_eq!((app.init_context)(), 100);
+    }
+
+    #[test]
+    fn test_app_builder_methods() {
+        let app = App::init(640, 480, "Configured App", || String::from("context"))
+            .set_responsive(true)
+            .set_virtual_resolution(1920, 1080)
+            .set_audio_device()
+            .set_fps(60)
+            .set_style_file("custom.gss")
+            .on_update(|ctx, _style| {
+                ctx.push_str("_updated");
+            })
+            .on_load(|ctx, _style| {
+                ctx.push_str("_loaded");
+            });
+
+        assert_eq!(app.width, 640);
+        assert_eq!(app.height, 480);
+        assert_eq!(app.virtual_width, 1920);
+        assert_eq!(app.virtual_height, 1080);
+        assert!(app.responsive);
+        assert_eq!(app.title, "Configured App");
+        assert_eq!(app.fps, 60);
+        assert!(app.audio_device);
+        assert_eq!(app.style_file, Some(PathBuf::from("custom.gss")));
+        assert!(app.update.is_some());
+        assert!(app.load.is_some());
+        assert_eq!((app.init_context)(), "context");
+    }
+
+    #[test]
+    fn test_load_style_fallback_none() {
+        let fallback = Gss::new();
+        let loaded = load_style_fallback::<&str>(None, fallback);
+        assert_eq!(loaded.get::<u32>(&["anything"]), None);
+    }
+
+    #[test]
+    fn test_load_style_fallback_missing_file() {
+        let fallback = muxutils::gss::parse_str("key = 42,").unwrap();
+        let loaded = load_style_fallback(Some("non_existent_file_12345.gss"), fallback);
+        assert_eq!(loaded.get::<u32>(&["key"]), Some(&42));
+    }
+
+    #[test]
+    fn test_load_style_fallback_valid_file() {
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_mux_valid_{}.gss", std::process::id()));
+        std::fs::write(&file_path, "button = { width = 120, height = 40 },").unwrap();
+
+        let fallback = Gss::new();
+        let loaded = load_style_fallback(Some(&file_path), fallback);
+        assert_eq!(loaded.get::<u32>(&["button", "width"]), Some(&120));
+        assert_eq!(loaded.get::<u32>(&["button", "height"]), Some(&40));
+
+        let _ = std::fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_load_style_fallback_invalid_syntax() {
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_mux_invalid_{}.gss", std::process::id()));
+        std::fs::write(&file_path, "INVALID GSS SYNTAX %%% {{").unwrap();
+
+        let fallback = muxutils::gss::parse_str("fallback_val = 99,").unwrap();
+        let loaded = load_style_fallback(Some(&file_path), fallback);
+        assert_eq!(loaded.get::<u32>(&["fallback_val"]), Some(&99));
+
+        let _ = std::fs::remove_file(file_path);
+    }
+}
