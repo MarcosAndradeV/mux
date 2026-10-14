@@ -1,3 +1,6 @@
+background_color = 0x181818FF
+text_color = "white"
+
 title = {
     top = 10%,
     left = 50%,
@@ -20,7 +23,7 @@ counter_display = {
     left = 50%,
     align = "center",
     font_size = 28.0,
-    color = "white",
+    color = text_color,
 }
 
 main_btn = {
@@ -33,7 +36,7 @@ main_btn = {
     hover_color = 0x3D5E8CFF,
     active_color = 0x547EB8FF,
     font_size = 20.0,
-    color = "white",
+    color = text_color,
 }
 
 btn_row = {
@@ -50,7 +53,7 @@ btn_inc10 = {
     bg = 0x2E6B38FF,
     hover_color = 0x3E8E4CFF,
     font_size = 18.0,
-    color = "white",
+    color = text_color,
 }
 
 btn_dec5 = {
@@ -59,7 +62,7 @@ btn_dec5 = {
     bg = 0x8C3B3BFF,
     hover_color = 0xB04A4AFF,
     font_size = 18.0,
-    color = "white",
+    color = text_color,
 }
 
 btn_reset = {
@@ -68,7 +71,7 @@ btn_reset = {
     bg = 0x555555FF,
     hover_color = 0x777777FF,
     font_size = 18.0,
-    color = "white",
+    color = text_color,
 }
 
 footer_bar = {

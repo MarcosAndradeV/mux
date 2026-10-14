@@ -1,18 +1,26 @@
 use muxapp::{App, muxui::*};
 
+#[derive(Default)]
 struct AppState {
     counter: i32,
+    bg_color: Color
 }
 
 fn main() {
-    App::init(800, 600, "Mux UI Showcase", || AppState { counter: 0 })
+    App::init(800, 600, "Mux UI Showcase", AppState::default)
         .set_style_file("./data/test.gss")
         .set_fps(30)
+        .on_load(load)
         .on_update(update)
         .run();
 }
 
+fn load(state: &mut AppState, style: &Style) {
+    state.bg_color = get_color_field(style, &["background_color"], state.bg_color);
+}
+
 fn update(state: &mut AppState, style: &Style) {
+    clear_background(state.bg_color);
     // 1. Responsive percentage-positioned headers
     TextElement::new("Mux UI Framework").place(style, "title");
     TextElement::new("Responsive % Layouts - GSS Styling - Stateless Buttons").place(style, "subtitle");
