@@ -447,7 +447,7 @@ impl<Context> App<Context> {
             if let Some(scene) = scenes.active_scene_mut() {
                 let action = scene.update(&mut context, &input, &style, dt);
                 scene.draw_3d(&context);
-                scene.draw_2d(&context, &style);
+                scene.draw_2d(&mut context, &style);
                 match action {
                     SceneAction::Switch(target_name) => {
                         scenes.switch(&target_name, &mut context, &style);

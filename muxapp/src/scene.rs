@@ -38,7 +38,7 @@ pub trait Scene<Context> {
     fn draw_3d(&mut self, _ctx: &Context) {}
 
     /// Called during the 2D rendering pass to lay out and render user interfaces.
-    fn draw_2d(&mut self, _ctx: &Context, _style: &Style) {}
+    fn draw_2d(&mut self, _ctx: &mut Context, _style: &Style) {}
 
     /// Called when the scene is deactivated, switched away from, or popped.
     fn on_exit(&mut self, _ctx: &mut Context) {}
@@ -184,6 +184,10 @@ mod tests {
             SceneAction::None
         }
 
+        fn draw_2d(&mut self, ctx: &mut i32, _style: &Style) {
+            *ctx += 5;
+        }
+
         fn on_exit(&mut self, ctx: &mut i32) {
             self.exited = true;
             *ctx -= 10;
@@ -208,25 +212,26 @@ mod tests {
         // Update active scene
         if let Some(scene) = router.active_scene_mut() {
             scene.update(&mut context, &input, &style, 0.016);
+            scene.draw_2d(&mut context, &style);
         }
-        assert_eq!(context, 11);
+        assert_eq!(context, 16); // 10 + 1 (update) + 5 (draw_2d)
 
         // Push game overlay
         assert!(router.push("game", &mut context, &style));
         assert_eq!(router.active_name(), Some("game"));
         assert_eq!(router.stack_depth(), 2);
-        assert_eq!(context, 21); // entered game
+        assert_eq!(context, 26); // 16 + 10 (entered game)
 
         // Pop game overlay
         assert_eq!(router.pop(&mut context), Some("game".to_string()));
         assert_eq!(router.active_name(), Some("menu"));
         assert_eq!(router.stack_depth(), 1);
-        assert_eq!(context, 11); // exited game
+        assert_eq!(context, 16); // 26 - 10 (exited game)
 
         // Pop menu
         assert_eq!(router.pop(&mut context), Some("menu".to_string()));
         assert_eq!(router.active_name(), None);
         assert!(router.is_empty());
-        assert_eq!(context, 1); // exited menu
+        assert_eq!(context, 6); // 16 - 10 (exited menu)
     }
 }

@@ -18,8 +18,6 @@ struct MainScene {
     camera: Camera3D,
     terrain_mesh: Vec<Vertex3D>,
     pause_requested: Cell<bool>,
-    counter_delta: Cell<i32>,
-    reset_counter: Cell<bool>,
 }
 
 impl Default for MainScene {
@@ -72,8 +70,6 @@ impl Default for MainScene {
             camera,
             terrain_mesh,
             pause_requested: Cell::new(false),
-            counter_delta: Cell::new(0),
-            reset_counter: Cell::new(false),
         }
     }
 }
@@ -86,12 +82,6 @@ impl Scene<AppState> for MainScene {
     fn update(&mut self, state: &mut AppState, input: &Input, style: &Style, dt: f32) -> SceneAction {
         if input.is_action_pressed("pause") || self.pause_requested.take() {
             return SceneAction::Push("pause".to_string());
-        }
-
-        state.counter += self.counter_delta.take();
-        if self.reset_counter.take() {
-            state.counter = 0;
-            state.cube_pos = Vector3::zero();
         }
 
         // Live-tuned GSS parameters via FromGssValue
@@ -156,7 +146,7 @@ impl Scene<AppState> for MainScene {
         });
     }
 
-    fn draw_2d(&mut self, state: &AppState, style: &Style) {
+    fn draw_2d(&mut self, state: &mut AppState, style: &Style) {
         TextElement::new("MUX 0.3.0 - 3D Engine & Systems").place(style, "title");
         TextElement::new("Batch-Safe Mesh (12k Vertices) - Mouse Delta Axes - Dynamic GSS Classes - 3D HUD Projection").place(style, "subtitle");
 
@@ -195,13 +185,14 @@ impl Scene<AppState> for MainScene {
             self.pause_requested.set(true);
         }
         if inc10.clicked() {
-            self.counter_delta.set(self.counter_delta.get() + 10);
+            state.counter += 10;
         }
         if dec5.clicked() {
-            self.counter_delta.set(self.counter_delta.get() - 5);
+            state.counter -= 5;
         }
         if reset.clicked() {
-            self.reset_counter.set(true);
+            state.counter = 0;
+            state.cube_pos = Vector3::zero();
         }
 
         // 3D In-World to Screen HUD Projected Waypoint
@@ -224,22 +215,17 @@ impl Scene<AppState> for MainScene {
 #[derive(Default)]
 struct PauseOverlayScene {
     resume_requested: Cell<bool>,
-    reset_pos_requested: Cell<bool>,
 }
 
 impl Scene<AppState> for PauseOverlayScene {
-    fn update(&mut self, state: &mut AppState, input: &Input, _style: &Style, _dt: f32) -> SceneAction {
-        if self.reset_pos_requested.take() {
-            state.cube_pos = Vector3::zero();
-        }
-
+    fn update(&mut self, _state: &mut AppState, input: &Input, _style: &Style, _dt: f32) -> SceneAction {
         if input.is_action_pressed("pause") || self.resume_requested.take() {
             return SceneAction::Pop;
         }
         SceneAction::None
     }
 
-    fn draw_2d(&mut self, _state: &AppState, style: &Style) {
+    fn draw_2d(&mut self, state: &mut AppState, style: &Style) {
         // Semi-transparent backdrop overlay
         draw_rectangle_rec(get_virtual_screen_rect(), get_color(0x000000AA));
 
@@ -259,7 +245,7 @@ impl Scene<AppState> for PauseOverlayScene {
             self.resume_requested.set(true);
         }
         if reset_pos_btn.clicked() {
-            self.reset_pos_requested.set(true);
+            state.cube_pos = Vector3::zero();
             self.resume_requested.set(true);
         }
     }
