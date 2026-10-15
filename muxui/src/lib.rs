@@ -18,6 +18,9 @@ pub type Style = muxutils::gss::Gss;
 pub use muxutils::raylib::*;
 pub use muxutils::*;
 
+pub mod d3;
+pub use d3::*;
+
 /// The interaction response returned when placing or checking interactive elements.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Response {
@@ -768,7 +771,7 @@ impl<'a, 'b> StackLayout<'a, 'b> {
 
     /// Returns the slice of children elements managed by this layout.
     pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
-        &self.children
+        self.children
     }
 }
 
@@ -910,7 +913,7 @@ impl<'a, 'b> GridLayout<'a, 'b> {
 
     /// Returns the slice of children elements managed by this layout.
     pub fn children(&self) -> &[(&'a str, &'a dyn Element)] {
-        &self.children
+        self.children
     }
 
     /// Computes the effective cell dimensions `(cell_width, cell_height)` for the grid.
@@ -1014,7 +1017,7 @@ impl<'a, 'b> Element for GridLayout<'a, 'b> {
 
         let total_items = self.children.len();
         let cols_used = total_items.min(columns) as f32;
-        let rows_used = ((total_items + columns - 1) / columns) as f32;
+        let rows_used = total_items.div_ceil(columns) as f32;
 
         let width = if cols_used > 0.0 {
             cols_used * cell_size.x + (cols_used - 1.0) * col_gap
@@ -1873,8 +1876,8 @@ mod tests {
         assert_eq!(resp.rect.y, 50.0);
         assert_eq!(resp.rect.width, 120.0);
         assert_eq!(resp.rect.height, 40.0);
-        assert_eq!(resp.clicked(), false);
-        assert_eq!(btn.clicked(), false);
+        assert!(!resp.clicked());
+        assert!(!btn.clicked());
 
         let btn_disabled = Button::new("Disabled").with_disabled(true);
         assert!(!btn_disabled.clicked_or_key(KeyboardKey::KEY_SPACE));

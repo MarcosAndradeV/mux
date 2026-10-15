@@ -155,6 +155,23 @@ pub fn get_virtual_mouse_position() -> raylib::Vector2 {
     raylib::Vector2::new(x, y)
 }
 
+/// Computes the mouse movement delta scaled to virtual canvas coordinates.
+pub fn get_virtual_mouse_delta() -> raylib::Vector2 {
+    let vp = get_viewport_state();
+    let raw_delta = raylib::get_mouse_delta();
+    if vp.scale > 0.0 {
+        raylib::Vector2::new(raw_delta.x / vp.scale, raw_delta.y / vp.scale)
+    } else {
+        raw_delta
+    }
+}
+
+/// Generates a ray from the virtual mouse position into 3D world space using the given camera.
+pub fn get_virtual_screen_to_world_ray(camera: raylib::Camera3D) -> raylib::Ray {
+    let mouse = get_virtual_mouse_position();
+    unsafe { raylib::GetScreenToWorldRay(mouse, camera) }
+}
+
 /// Computes the source (OpenGL inverted Y) and destination (window letterbox) rectangles.
 pub fn get_viewport_rects() -> (raylib::Rectangle, raylib::Rectangle) {
     let vp = get_viewport_state();
@@ -224,34 +241,225 @@ fn normalize_path<'a>(path: &[&'a str]) -> Vec<&'a str> {
     }
 }
 
+/// Trait for deserializing or extracting typed values from a GSS stylesheet object [`gss::Object`].
+pub trait FromGssValue: Sized {
+    /// Extracts a value of type `Self` from `obj` at the given `path`.
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self>;
+}
+
+/// Extension methods for [`gss::Object`] to query typed values with [`FromGssValue`].
+pub trait GssExt {
+    /// Retrieves a typed value at `path`, returning `None` if not found or conversion fails.
+    fn get_val<T: FromGssValue>(&self, path: &[&str]) -> Option<T>;
+
+    /// Retrieves a typed value at `path`, returning `default` if not found or conversion fails.
+    fn get_val_or<T: FromGssValue>(&self, path: &[&str], default: T) -> T;
+}
+
+impl GssExt for gss::Object {
+    fn get_val<T: FromGssValue>(&self, path: &[&str]) -> Option<T> {
+        T::from_gss(self, path)
+    }
+
+    fn get_val_or<T: FromGssValue>(&self, path: &[&str], default: T) -> T {
+        T::from_gss(self, path).unwrap_or(default)
+    }
+}
+
+impl FromGssValue for f32 {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        if let Some(&val) = obj.get::<f32>(&norm) {
+            Some(val)
+        } else if let Some(&val) = obj.get::<u32>(&norm) {
+            Some(val as f32)
+        } else if let Some(&val) = obj.get::<i32>(&norm) {
+            Some(val as f32)
+        } else {
+            None
+        }
+    }
+}
+
+impl FromGssValue for u32 {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        if let Some(&val) = obj.get::<u32>(&norm) {
+            Some(val)
+        } else if let Some(&val) = obj.get::<i32>(&norm) {
+            Some(val.max(0) as u32)
+        } else if let Some(&val) = obj.get::<f32>(&norm) {
+            Some(val.max(0.0) as u32)
+        } else {
+            None
+        }
+    }
+}
+
+impl FromGssValue for i32 {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        if let Some(&val) = obj.get::<i32>(&norm) {
+            Some(val)
+        } else if let Some(&val) = obj.get::<u32>(&norm) {
+            Some(val as i32)
+        } else if let Some(&val) = obj.get::<f32>(&norm) {
+            Some(val as i32)
+        } else {
+            None
+        }
+    }
+}
+
+impl FromGssValue for usize {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        if let Some(&val) = obj.get::<usize>(&norm) {
+            Some(val)
+        } else if let Some(&val) = obj.get::<u32>(&norm) {
+            Some(val as usize)
+        } else if let Some(&val) = obj.get::<i32>(&norm) {
+            Some(val.max(0) as usize)
+        } else if let Some(&val) = obj.get::<f32>(&norm) {
+            Some(val.max(0.0) as usize)
+        } else {
+            None
+        }
+    }
+}
+
+impl FromGssValue for bool {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        obj.get::<bool>(&norm).copied()
+    }
+}
+
+impl FromGssValue for String {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        obj.get::<String>(&norm).cloned()
+    }
+}
+
+impl FromGssValue for raylib::Color {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        // String color name (e.g. "gold", "lime", "red")
+        if let Some(string) = obj.get::<String>(&norm) {
+            let mapped = map_color(string);
+            if mapped != raylib::BLANK
+                || string.eq_ignore_ascii_case("blank")
+                || string.eq_ignore_ascii_case("transparent")
+            {
+                return Some(mapped);
+            }
+        }
+        // Hex u32 literal (e.g. 0xFF00FFFF)
+        if let Some(&hex) = obj.get::<u32>(&norm) {
+            return Some(raylib::get_color(hex));
+        }
+        // Sub-object RGBA: { r = 255, g = 0, b = 0, a = 255 }
+        let mut r_p = norm.clone();
+        r_p.push("r");
+        let mut g_p = norm.clone();
+        g_p.push("g");
+        let mut b_p = norm.clone();
+        b_p.push("b");
+        if let (Some(r), Some(g), Some(b)) = (
+            obj.get_val::<u32>(&r_p),
+            obj.get_val::<u32>(&g_p),
+            obj.get_val::<u32>(&b_p),
+        ) {
+            let mut a_p = norm.clone();
+            a_p.push("a");
+            let a = obj.get_val::<u32>(&a_p).unwrap_or(255);
+            return Some(raylib::Color {
+                r: r as u8,
+                g: g as u8,
+                b: b as u8,
+                a: a as u8,
+            });
+        }
+        None
+    }
+}
+
+impl FromGssValue for raylib::Vector2 {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        // Try { x = ..., y = ... }
+        let mut x_p = norm.clone();
+        x_p.push("x");
+        let mut y_p = norm.clone();
+        y_p.push("y");
+        if let (Some(x), Some(y)) = (obj.get_val::<f32>(&x_p), obj.get_val::<f32>(&y_p)) {
+            return Some(raylib::Vector2::new(x, y));
+        }
+
+        // Try { width = ..., height = ... }
+        let mut w_p = norm.clone();
+        w_p.push("width");
+        let mut h_p = norm.clone();
+        h_p.push("height");
+        if let (Some(w), Some(h)) = (obj.get_val::<f32>(&w_p), obj.get_val::<f32>(&h_p)) {
+            return Some(raylib::Vector2::new(w, h));
+        }
+
+        None
+    }
+}
+
+impl FromGssValue for raylib::Vector3 {
+    fn from_gss(obj: &gss::Object, path: &[&str]) -> Option<Self> {
+        let norm = normalize_path(path);
+        // Try { x = ..., y = ..., z = ... }
+        let mut x_p = norm.clone();
+        x_p.push("x");
+        let mut y_p = norm.clone();
+        y_p.push("y");
+        let mut z_p = norm.clone();
+        z_p.push("z");
+        if let (Some(x), Some(y), Some(z)) = (
+            obj.get_val::<f32>(&x_p),
+            obj.get_val::<f32>(&y_p),
+            obj.get_val::<f32>(&z_p),
+        ) {
+            return Some(raylib::Vector3::new(x, y, z));
+        }
+
+        // Try { pitch = ..., yaw = ..., roll = ... }
+        let mut pitch_p = norm.clone();
+        pitch_p.push("pitch");
+        let mut yaw_p = norm.clone();
+        yaw_p.push("yaw");
+        let mut roll_p = norm.clone();
+        roll_p.push("roll");
+        if let (Some(p), Some(yw), Some(r)) = (
+            obj.get_val::<f32>(&pitch_p),
+            obj.get_val::<f32>(&yaw_p),
+            obj.get_val::<f32>(&roll_p),
+        ) {
+            return Some(raylib::Vector3::new(p, yw, r));
+        }
+
+        None
+    }
+}
+
 /// Retrieves a color property from the stylesheet [`Style`] at the given path segment slice (e.g., `&["button", "color"]`).
 ///
 /// It supports reading color values defined as string names (e.g. `"red"`, `"dark green"`),
 /// hex integers (e.g. `0xFF00FFFF`), or references. If not found or invalid, `default` is returned.
 pub fn get_color_field(obj: &gss::Object, path: &[&str], default: raylib::Color) -> raylib::Color {
-    let norm = normalize_path(path);
-    if let Some(string) = obj.get::<String>(&norm) {
-        let mapped = map_color(string);
-        if mapped != raylib::BLANK
-            || string.eq_ignore_ascii_case("blank")
-            || string.eq_ignore_ascii_case("transparent")
-        {
-            return mapped;
-        }
-    }
-    if let Some(&hex) = obj.get::<u32>(&norm) {
-        raylib::get_color(hex)
-    } else {
-        default
-    }
+    obj.get_val_or(path, default)
 }
 
 /// Retrieves a boolean property from the stylesheet [`Style`] for a specific element name and field.
 ///
 /// Returns `default` if the field is not present.
 pub fn get_bool_field(obj: &gss::Object, name: &str, field: &str, default: bool) -> bool {
-    let norm = normalize_path(&[name, field]);
-    obj.get::<bool>(&norm).copied().unwrap_or(default)
+    obj.get_val_or(&[name, field], default)
 }
 
 /// Retrieves a float (`f32`) property from the stylesheet [`Style`] at the given path.
@@ -259,16 +467,7 @@ pub fn get_bool_field(obj: &gss::Object, name: &str, field: &str, default: bool)
 /// Automatically handles float literals, percentage values (e.g. `89%` -> `0.89`), and integers (`u32`).
 /// Returns `default` if the field is not present or cannot be parsed as a float.
 pub fn get_f32_field(obj: &gss::Object, path: &[&str], default: f32) -> f32 {
-    let norm = normalize_path(path);
-    if let Some(&val) = obj.get::<f32>(&norm) {
-        val
-    } else if let Some(&val) = obj.get::<u32>(&norm) {
-        val as f32
-    } else if let Some(&val) = obj.get::<i32>(&norm) {
-        val as f32
-    } else {
-        default
-    }
+    obj.get_val_or(path, default)
 }
 
 /// Retrieves a relative coordinate or float property from the stylesheet [`Style`] at the given path.
@@ -304,10 +503,7 @@ pub fn get_optional_relative_field(obj: &gss::Object, path: &[&str], scale: f32)
 ///
 /// Returns `default` if the field is not present.
 pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> String {
-    let norm = normalize_path(path);
-    gss.get::<String>(&norm)
-        .cloned()
-        .unwrap_or_else(|| default.to_string())
+    gss.get_val_or(path, default.to_string())
 }
 
 /// Retrieves a `usize` property from the stylesheet [`Style`] at the given path.
@@ -315,18 +511,7 @@ pub fn get_string_field(gss: &gss::Object, path: &[&str], default: &str) -> Stri
 /// Automatically converts integer literals and floats into `usize`.
 /// Returns `default` if the field is not present or cannot be parsed.
 pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usize {
-    let norm = normalize_path(path);
-    if let Some(&val) = obj.get::<usize>(&norm) {
-        val
-    } else if let Some(&val) = obj.get::<u32>(&norm) {
-        val as usize
-    } else if let Some(&val) = obj.get::<i32>(&norm) {
-        val.max(0) as usize
-    } else if let Some(&val) = obj.get::<f32>(&norm) {
-        val.max(0.0) as usize
-    } else {
-        default
-    }
+    obj.get_val_or(path, default)
 }
 
 /// Returns true if the window has been initialized successfully.
@@ -419,8 +604,11 @@ pub fn load_texture_from_image(image: raylib::Image) -> raylib::Texture2D {
 mod tests {
     use super::*;
 
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_viewport_calculation() {
+        let _guard = TEST_LOCK.lock().unwrap();
         // Virtual 800x600, Window 1600x1200 -> Scale 2.0, Offset (0, 0)
         set_viewport(800.0, 600.0, 1600.0, 1200.0);
         let vp = get_viewport_state();
@@ -521,6 +709,7 @@ mod tests {
 
     #[test]
     fn test_responsive_viewport_and_culling() {
+        let _guard = TEST_LOCK.lock().unwrap();
         set_viewport(1280.0, 720.0, 1280.0, 720.0);
         let vp = get_viewport_state();
         assert_eq!(vp.scale, 1.0);
@@ -706,6 +895,7 @@ mod tests {
 
     #[test]
     fn test_viewport_state_getters_and_defaults() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let def = ViewportState::default();
         assert_eq!(def.virtual_width, 800.0);
         assert_eq!(def.virtual_height, 600.0);
@@ -737,5 +927,74 @@ mod tests {
         log_error!("Test error log: {}", "error message");
         log_debug!("Test debug log: {}", 456);
         log_trace!("Test trace log: {}", 789);
+    }
+
+    #[test]
+    fn test_from_gss_value_and_gss_ext() {
+        let style = gss::parse_str(
+            r#"
+            game = {
+                title = "Star Explorer",
+                speed = 45.5,
+                score = 1000,
+                active = true,
+                tint = "lime",
+                bg = 0x112233FF,
+                rgb_color = { r = 255, g = 128, b = 0, a = 200 },
+                velocity = { x = 12.0, y = 5.5 },
+                box_size = { width = 320, height = 240 },
+                position_3d = { x = 10.0, y = 20.0, z = 30.0 },
+                rotation_3d = { pitch = 45.0, yaw = 90.0, roll = 0.0 },
+            },
+            "#,
+        )
+        .unwrap();
+
+        // Scalar types via GssExt
+        assert_eq!(style.get_val::<String>(&["game", "title"]), Some("Star Explorer".to_string()));
+        assert_eq!(style.get_val::<f32>(&["game", "speed"]), Some(45.5));
+        assert_eq!(style.get_val::<u32>(&["game", "score"]), Some(1000));
+        assert_eq!(style.get_val::<bool>(&["game", "active"]), Some(true));
+        assert_eq!(style.get_val_or::<f32>(&["game", "nonexistent"], 99.0), 99.0);
+
+        // Colors
+        assert_eq!(style.get_val::<raylib::Color>(&["game", "tint"]), Some(raylib::LIME));
+        assert_eq!(style.get_val::<raylib::Color>(&["game", "bg"]), Some(raylib::get_color(0x112233FF)));
+        assert_eq!(
+            style.get_val::<raylib::Color>(&["game", "rgb_color"]),
+            Some(raylib::Color { r: 255, g: 128, b: 0, a: 200 })
+        );
+
+        // Vector2
+        assert_eq!(
+            style.get_val::<raylib::Vector2>(&["game", "velocity"]),
+            Some(raylib::Vector2::new(12.0, 5.5))
+        );
+        assert_eq!(
+            style.get_val::<raylib::Vector2>(&["game", "box_size"]),
+            Some(raylib::Vector2::new(320.0, 240.0))
+        );
+
+        // Vector3
+        assert_eq!(
+            style.get_val::<raylib::Vector3>(&["game", "position_3d"]),
+            Some(raylib::Vector3::new(10.0, 20.0, 30.0))
+        );
+        assert_eq!(
+            style.get_val::<raylib::Vector3>(&["game", "rotation_3d"]),
+            Some(raylib::Vector3::new(45.0, 90.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn test_virtual_mouse_delta_scaling() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        set_viewport(800.0, 600.0, 1600.0, 1200.0);
+        let vp = get_viewport_state();
+        assert_eq!(vp.scale, 2.0);
+        // Note: raylib::get_mouse_delta() returns (0, 0) in headless tests, but calculation doesn't panic
+        let delta = get_virtual_mouse_delta();
+        assert_eq!(delta.x, 0.0);
+        assert_eq!(delta.y, 0.0);
     }
 }

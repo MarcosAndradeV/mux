@@ -1,9 +1,9 @@
 [package]
 name = "muxui"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [features]
 
 [dependencies]
-muxutils = { path = "../muxutils", version = "0.1.0" }
+muxutils = { path = "../muxutils", version = "0.2.0" }

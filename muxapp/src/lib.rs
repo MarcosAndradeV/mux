@@ -31,9 +31,23 @@ pub use muxui;
 
 use muxui::*;
 
+pub mod input;
+pub mod scene;
+
+pub use input::*;
+pub use scene::*;
+
+type UpdateCallback<Context> = Box<dyn Fn(&mut Context, &Style) + 'static>;
+type UpdateWithInputCallback<Context> = Box<dyn Fn(&mut Context, &Input, &Style, f32) + 'static>;
+type LoadCallback<Context> = Box<dyn Fn(&mut Context, &Style) + 'static>;
+
 struct Manager<Context> {
-    update: Box<dyn Fn(&mut Context, &Style) + 'static>,
-    load: Box<dyn Fn(&mut Context, &Style) + 'static>,
+    update: UpdateCallback<Context>,
+    update_with_input: Option<UpdateWithInputCallback<Context>>,
+    scenes: SceneRouter<Context>,
+    initial_scene: Option<String>,
+    input: Input,
+    load: LoadCallback<Context>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -56,8 +70,12 @@ pub struct App<Context> {
     virtual_height: i32,
     responsive: bool,
     title: String,
-    update: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
-    load: Option<Box<dyn Fn(&mut Context, &Style) + 'static>>,
+    update: Option<UpdateCallback<Context>>,
+    update_with_input: Option<UpdateWithInputCallback<Context>>,
+    scenes: SceneRouter<Context>,
+    initial_scene: Option<String>,
+    input: Input,
+    load: Option<LoadCallback<Context>>,
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
@@ -103,6 +121,10 @@ impl<Context> App<Context> {
             responsive: true,
             title: title.into(),
             update: None,
+            update_with_input: None,
+            scenes: SceneRouter::new(),
+            initial_scene: None,
+            input: Input::new(),
             load: None,
             style_file: None,
             fps: muxutils::DEFAULT_FPS,
@@ -146,6 +168,48 @@ impl<Context> App<Context> {
     /// If called, the audio device is initialized when the application starts running, and closed on cleanup.
     pub fn set_audio_device(mut self) -> Self {
         self.audio_device = true;
+        self
+    }
+
+    /// Registers a scene with a unique identifier.
+    ///
+    /// If no active scene has been set yet, this scene becomes the initial active scene.
+    pub fn add_scene(mut self, name: impl Into<String>, scene: impl Scene<Context> + 'static) -> Self {
+        let name_str = name.into();
+        if self.initial_scene.is_none() {
+            self.initial_scene = Some(name_str.clone());
+        }
+        self.scenes.register(name_str, scene);
+        self
+    }
+
+    /// Sets the initial active scene by its registered name.
+    pub fn set_active_scene(mut self, name: impl Into<String>) -> Self {
+        self.initial_scene = Some(name.into());
+        self
+    }
+
+    /// Sets an update callback that receives access to the [`Input`] mapper and frame delta time (`dt`).
+    pub fn on_update_with_input<F: Fn(&mut Context, &Input, &Style, f32) + 'static>(mut self, f: F) -> Self {
+        self.update_with_input = Some(Box::new(f));
+        self
+    }
+
+    /// Registers a named action mapped to one or more keyboard keys.
+    pub fn register_action(mut self, name: impl Into<String>, keys: impl IntoIterator<Item = KeyboardKey>) -> Self {
+        self.input.register_action(name, keys);
+        self
+    }
+
+    /// Registers a named action mapped to one or more mouse buttons.
+    pub fn register_mouse_action(mut self, name: impl Into<String>, buttons: impl IntoIterator<Item = MouseButton>) -> Self {
+        self.input.register_mouse_action(name, buttons);
+        self
+    }
+
+    /// Registers a 1D virtual axis mapped to a positive key (+1.0) and a negative key (-1.0).
+    pub fn register_axis(mut self, name: impl Into<String>, positive: KeyboardKey, negative: KeyboardKey) -> Self {
+        self.input.register_axis(name, positive, negative);
         self
     }
 
@@ -211,6 +275,10 @@ impl<Context> App<Context> {
             responsive,
             title,
             update,
+            update_with_input,
+            scenes,
+            initial_scene,
+            input,
             load,
             style_file,
             fps,
@@ -234,6 +302,10 @@ impl<Context> App<Context> {
 
         Manager {
             update: update.unwrap_or(Box::new(|_, _| {})),
+            update_with_input,
+            scenes,
+            initial_scene,
+            input,
             load: load.unwrap_or(Box::new(|_, _| {})),
             style_file,
             fps,
@@ -254,6 +326,10 @@ impl<Context> App<Context> {
         log_info!("MUX: Starting App run loop");
         let Manager {
             update,
+            update_with_input,
+            mut scenes,
+            initial_scene,
+            input,
             load,
             style_file,
             fps,
@@ -271,6 +347,10 @@ impl<Context> App<Context> {
         let mut style = load_style_fallback(style_file.as_ref(), Style::new());
 
         load(&mut context, &style);
+
+        if let Some(ref init_scene) = initial_scene {
+            scenes.switch(init_scene, &mut context, &style);
+        }
 
         // 1. Declare the watcher OUTSIDE the block so it lives longer
         let mut _watcher = None;
@@ -353,10 +433,32 @@ impl<Context> App<Context> {
                 load(&mut context, &style);
             }
 
+            let dt = get_frame_time();
+
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
 
-            update(&mut context, &style);
+            if let Some(scene) = scenes.active_scene_mut() {
+                let action = scene.update(&mut context, &input, &style, dt);
+                scene.draw_3d(&context);
+                scene.draw_2d(&context, &style);
+                match action {
+                    SceneAction::Switch(target_name) => {
+                        scenes.switch(&target_name, &mut context, &style);
+                    }
+                    SceneAction::Push(target_name) => {
+                        scenes.push(&target_name, &mut context, &style);
+                    }
+                    SceneAction::Pop => {
+                        scenes.pop(&mut context);
+                    }
+                    SceneAction::None => {}
+                }
+            } else if let Some(ref update_input) = update_with_input {
+                update_input(&mut context, &input, &style, dt);
+            } else {
+                update(&mut context, &style);
+            }
             end_texture_mode();
 
             begin_drawing();
@@ -370,6 +472,10 @@ impl<Context> App<Context> {
 
         if is_render_texture_valid(target) {
             unload_render_texture(target);
+        }
+
+        if let Some(scene) = scenes.active_scene_mut() {
+            scene.on_exit(&mut context);
         }
 
         drop(context);
@@ -443,8 +549,13 @@ mod tests {
             .set_audio_device()
             .set_fps(60)
             .set_style_file("custom.gss")
+            .register_action("jump", [KEY_SPACE])
+            .register_axis("pitch", KEY_W, KEY_S)
             .on_update(|ctx, _style| {
                 ctx.push_str("_updated");
+            })
+            .on_update_with_input(|ctx, _input, _style, _dt| {
+                ctx.push_str("_input");
             })
             .on_style_reload(|ctx, _style| {
                 ctx.push_str("_reloaded");
@@ -460,8 +571,24 @@ mod tests {
         assert!(app.audio_device);
         assert_eq!(app.style_file, Some(PathBuf::from("custom.gss")));
         assert!(app.update.is_some());
+        assert!(app.update_with_input.is_some());
         assert!(app.load.is_some());
         assert_eq!((app.init_context)(), "context");
+    }
+
+    struct DummyScene;
+    impl Scene<()> for DummyScene {}
+
+    #[test]
+    fn test_app_scene_registration() {
+        let app = App::new(800, 600, "Scene App")
+            .add_scene("intro", DummyScene)
+            .add_scene("main", DummyScene)
+            .set_active_scene("main");
+
+        assert_eq!(app.initial_scene, Some("main".to_string()));
+        assert!(app.scenes.has_scene("intro"));
+        assert!(app.scenes.has_scene("main"));
     }
 
     #[test]

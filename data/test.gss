@@ -47,6 +47,15 @@ btn_row = {
     gap = 16,
 }
 
+btn_pause = {
+    width = 120,
+    height = 40,
+    bg = 0x2A4060FF,
+    hover_color = 0x3D5E8CFF,
+    font_size = 18.0,
+    color = text_color,
+}
+
 btn_inc10 = {
     width = 90,
     height = 40,
@@ -87,4 +96,13 @@ footer_text = {
     left = 16,
     font_size = 14.0,
     color = "gray",
+}
+
+scene3d = {
+    rotation_speed = 60.0,
+    cube_size = 2.0,
+    cube_color = "gold",
+    wire_color = "lime",
+    sphere_color = "sky blue",
+    camera_pos = { x = 0.0, y = 8.0, z = 12.0 },
 }
