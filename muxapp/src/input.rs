@@ -6,12 +6,24 @@ use std::collections::HashMap;
 use muxui::raylib::*;
 use muxui::*;
 
+/// Continuous hardware mouse movement or wheel axes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseAxis {
+    /// Horizontal mouse movement delta (positive = right).
+    X,
+    /// Vertical mouse movement delta (positive = down).
+    Y,
+    /// Mouse scroll wheel movement.
+    Wheel,
+}
+
 /// Action and axis mapper for keyboard and mouse interactions.
 #[derive(Debug, Clone, Default)]
 pub struct Input {
     actions: HashMap<String, Vec<KeyboardKey>>,
     mouse_actions: HashMap<String, Vec<MouseButton>>,
     axes: HashMap<String, (KeyboardKey, KeyboardKey)>,
+    mouse_axes: HashMap<String, (MouseAxis, f32)>,
 }
 
 impl Input {
@@ -33,6 +45,11 @@ impl Input {
     /// Registers a 1D virtual axis mapped to a positive key (+1.0) and a negative key (-1.0).
     pub fn register_axis(&mut self, name: impl Into<String>, positive: KeyboardKey, negative: KeyboardKey) {
         self.axes.insert(name.into(), (positive, negative));
+    }
+
+    /// Registers a continuous mouse delta axis with a sensitivity multiplier.
+    pub fn register_mouse_axis(&mut self, name: impl Into<String>, axis: MouseAxis, sensitivity: f32) {
+        self.mouse_axes.insert(name.into(), (axis, sensitivity));
     }
 
     /// Returns `true` if any key or button mapped to `action` is currently held down.
@@ -73,23 +90,30 @@ impl Input {
         false
     }
 
-    /// Computes the normalized axis value in the range `[-1.0, 1.0]`.
+    /// Computes the axis value, combining keyboard input and mouse delta if registered.
     ///
-    /// Returns `1.0` if only the positive key is held down, `-1.0` if only the negative key is held,
-    /// and `0.0` if both or neither are held down.
+    /// - Keyboard contributions range between `[-1.0, 1.0]`.
+    /// - Mouse contributions scale virtual delta/wheel by the configured sensitivity.
     pub fn get_axis(&self, name: &str) -> f32 {
+        let mut val = 0.0;
         if let Some(&(pos, neg)) = self.axes.get(name) {
-            let mut val = 0.0;
             if is_key_down(pos) {
                 val += 1.0;
             }
             if is_key_down(neg) {
                 val -= 1.0;
             }
-            val
-        } else {
-            0.0
         }
+        if let Some(&(axis, sensitivity)) = self.mouse_axes.get(name) {
+            let delta = self.mouse_delta();
+            let mouse_val = match axis {
+                MouseAxis::X => delta.x * sensitivity,
+                MouseAxis::Y => delta.y * sensitivity,
+                MouseAxis::Wheel => get_mouse_wheel_move() * sensitivity,
+            };
+            val += mouse_val;
+        }
+        val
     }
 
     /// Returns the mouse movement delta scaled to virtual canvas coordinates.
@@ -113,13 +137,16 @@ mod tests {
         input.register_action("jump", [KEY_SPACE, KEY_W]);
         input.register_mouse_action("fire", [MOUSE_BUTTON_LEFT]);
         input.register_axis("horizontal", KEY_D, KEY_A);
+        input.register_mouse_axis("pitch", MouseAxis::Y, 0.05);
 
         assert!(input.actions.contains_key("jump"));
         assert!(input.mouse_actions.contains_key("fire"));
         assert!(input.axes.contains_key("horizontal"));
+        assert!(input.mouse_axes.contains_key("pitch"));
 
         // In headless mode without key inputs, axis defaults to 0.0
         assert_eq!(input.get_axis("horizontal"), 0.0);
+        assert_eq!(input.get_axis("pitch"), 0.0);
         assert_eq!(input.get_axis("nonexistent"), 0.0);
         assert!(!input.is_action_down("jump"));
         assert!(!input.is_action_pressed("jump"));

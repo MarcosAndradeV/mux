@@ -179,6 +179,8 @@ pub struct TextElement {
     /// The string text to display.
     pub text: String,
     font: Font,
+    /// Optional dynamic stylesheet class (e.g. `"warning"`, `"danger"`).
+    pub class: Option<String>,
 }
 
 impl TextElement {
@@ -187,6 +189,7 @@ impl TextElement {
         Self {
             text: text.into(),
             font: get_font_default(),
+            class: None,
         }
     }
 
@@ -195,7 +198,19 @@ impl TextElement {
         Self {
             text: text.into(),
             font,
+            class: None,
         }
+    }
+
+    /// Builder method to assign an optional style class name.
+    pub fn with_class(mut self, class: impl Into<String>) -> Self {
+        self.class = Some(class.into());
+        self
+    }
+
+    /// Sets the dynamic style class name.
+    pub fn set_class(&mut self, class: impl Into<String>) {
+        self.class = Some(class.into());
     }
 }
 
@@ -204,9 +219,27 @@ impl Element for TextElement {
         if !is_window_ready() {
             return;
         }
-        let font_size = get_f32_field(style, &[name, "font_size"], DEFAULT_FONT_SIZE);
-        let color = get_color_field(style, &[name, "color"], WHITE);
-        let spacing = get_f32_field(style, &[name, "spacing"], DEFAULT_SPACING);
+        let font_size = get_f32_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "font_size",
+            DEFAULT_FONT_SIZE,
+        );
+        let color = get_color_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "color",
+            WHITE,
+        );
+        let spacing = get_f32_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "spacing",
+            DEFAULT_SPACING,
+        );
         draw_text_ex(
             self.font,
             cstr!(&self.text),
@@ -218,8 +251,20 @@ impl Element for TextElement {
     }
 
     fn measure(&self, style: &Style, name: &str) -> Vector2 {
-        let font_size = get_f32_field(style, &[name, "font_size"], DEFAULT_FONT_SIZE);
-        let spacing = get_f32_field(style, &[name, "spacing"], DEFAULT_SPACING);
+        let font_size = get_f32_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "font_size",
+            DEFAULT_FONT_SIZE,
+        );
+        let spacing = get_f32_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "spacing",
+            DEFAULT_SPACING,
+        );
         measure_text_ex(self.font, cstr!(&self.text), font_size, spacing)
     }
 }
@@ -499,6 +544,8 @@ impl Element for RenderTextureElement {
 pub struct Button<E: Element> {
     element: E,
     disabled: bool,
+    /// Optional dynamic stylesheet class (e.g. `"danger"`, `"warning"`).
+    pub class: Option<String>,
     clicked: std::cell::Cell<bool>,
     hovered: std::cell::Cell<bool>,
     pressed: std::cell::Cell<bool>,
@@ -510,6 +557,14 @@ impl Button<TextElement> {
     pub fn new(label: impl Into<String>) -> Self {
         Self::from_element(TextElement::new(label))
     }
+
+    /// Builder method to assign an optional style class name to the button and its text label.
+    pub fn with_class(mut self, class: impl Into<String>) -> Self {
+        let cls = class.into();
+        self.element.class = Some(cls.clone());
+        self.class = Some(cls);
+        self
+    }
 }
 
 impl<E: Element> Button<E> {
@@ -518,6 +573,7 @@ impl<E: Element> Button<E> {
         Self {
             element,
             disabled: false,
+            class: None,
             clicked: std::cell::Cell::new(false),
             hovered: std::cell::Cell::new(false),
             pressed: std::cell::Cell::new(false),
@@ -528,6 +584,12 @@ impl<E: Element> Button<E> {
                 height: 0.0,
             }),
         }
+    }
+
+    /// Builder method to assign an optional style class name to the button container.
+    pub fn with_button_class(mut self, class: impl Into<String>) -> Self {
+        self.class = Some(class.into());
+        self
     }
 
     /// Backwards-compatible constructor wrapping an element.
@@ -652,10 +714,12 @@ impl<E: Element> Element for Button<E> {
         let window_ready = is_window_ready();
 
         // Background color
-        let bg_color = get_color_field(
+        let bg_color = get_color_field_with_class(
             style,
-            &[name, "background_color"],
-            get_color_field(style, &[name, "bg"], BLANK),
+            name,
+            self.class.as_deref(),
+            "background_color",
+            get_color_field_with_class(style, name, self.class.as_deref(), "bg", BLANK),
         );
         if window_ready && bg_color != BLANK {
             draw_rectangle_rec(rec, bg_color);
@@ -663,12 +727,16 @@ impl<E: Element> Element for Button<E> {
 
         // Active / Pressed overlay
         if window_ready && is_pressed {
-            let active_color = get_color_field(
+            let active_color = get_color_field_with_class(
                 style,
-                &[name, "active_color"],
-                get_color_field(
+                name,
+                self.class.as_deref(),
+                "active_color",
+                get_color_field_with_class(
                     style,
-                    &[name, "pressed_color"],
+                    name,
+                    self.class.as_deref(),
+                    "pressed_color",
                     get_color(0xFFFFFF55),
                 ),
             );
@@ -677,14 +745,12 @@ impl<E: Element> Element for Button<E> {
             }
         } else if window_ready && is_hovered {
             // Hover overlay
-            let hover_color = get_color_field(
+            let hover_color = get_color_field_with_class(
                 style,
-                &[name, "hover_color"],
-                get_color_field(
-                    style,
-                    &[name, "button", "hover_color"],
-                    get_color(0xFFFFFF33),
-                ),
+                name,
+                self.class.as_deref(),
+                "hover_color",
+                get_color(0xFFFFFF33),
             );
             if hover_color != BLANK {
                 draw_rectangle_rec(rec, hover_color);
@@ -700,10 +766,12 @@ impl<E: Element> Element for Button<E> {
 
         // Disabled overlay
         if window_ready && self.disabled {
-            let disabled_color = get_color_field(
+            let disabled_color = get_color_field_with_class(
                 style,
-                &[name, "disabled_color"],
-                get_color_field(style, &[name, "disabled_bg"], get_color(0x00000088)),
+                name,
+                self.class.as_deref(),
+                "disabled_color",
+                get_color_field_with_class(style, name, self.class.as_deref(), "disabled_bg", get_color(0x00000088)),
             );
             if disabled_color != BLANK {
                 draw_rectangle_rec(rec, disabled_color);
@@ -716,9 +784,9 @@ impl<E: Element> Element for Button<E> {
         let screen_w = get_virtual_screen_width();
         let screen_h = get_virtual_screen_height();
 
-        let pad = get_f32_field(style, &[name, "padding"], 0.0);
-        let pad_x = get_f32_field(style, &[name, "padding_x"], pad);
-        let pad_y = get_f32_field(style, &[name, "padding_y"], pad);
+        let pad = get_f32_field_with_class(style, name, self.class.as_deref(), "padding", 0.0);
+        let pad_x = get_f32_field_with_class(style, name, self.class.as_deref(), "padding_x", pad);
+        let pad_y = get_f32_field_with_class(style, name, self.class.as_deref(), "padding_y", pad);
 
         let default_w = inner_size.x + pad_x * 2.0;
         let default_h = inner_size.y + pad_y * 2.0;
@@ -1938,5 +2006,60 @@ mod tests {
         assert_eq!(grid.children().len(), 2);
         assert_eq!(grid.children()[0].0, "c1");
         assert_eq!(grid.children()[1].0, "c2");
+    }
+
+    #[test]
+    fn test_element_with_class_styling() {
+        let style = parse_str(
+            r#"
+            badge = {
+                color = "white",
+                font_size = 14.0,
+                warning = {
+                    color = "red",
+                    font_size = 28.0,
+                },
+            }
+            btn = {
+                background_color = "gray",
+                danger = {
+                    background_color = "red",
+                    color = "yellow",
+                },
+            }
+            "#,
+        ).unwrap();
+
+        // 1. TextElement without class
+        let text_normal = TextElement::new("NORMAL");
+        assert_eq!(text_normal.class, None);
+        assert_eq!(
+            get_color_field_with_class(&style, "badge", text_normal.class.as_deref(), "color", WHITE),
+            WHITE
+        );
+        assert_eq!(
+            get_f32_field_with_class(&style, "badge", text_normal.class.as_deref(), "font_size", 10.0),
+            14.0
+        );
+
+        // 2. TextElement with class
+        let text_warning = TextElement::new("WARNING").with_class("warning");
+        assert_eq!(text_warning.class.as_deref(), Some("warning"));
+        assert_eq!(
+            get_color_field_with_class(&style, "badge", text_warning.class.as_deref(), "color", WHITE),
+            RED
+        );
+        assert_eq!(
+            get_f32_field_with_class(&style, "badge", text_warning.class.as_deref(), "font_size", 10.0),
+            28.0
+        );
+
+        // 3. Button with class
+        let btn_danger = Button::new("EJECT").with_class("danger");
+        assert_eq!(btn_danger.class.as_deref(), Some("danger"));
+        assert_eq!(
+            get_color_field_with_class(&style, "btn", btn_danger.class.as_deref(), "background_color", BLANK),
+            RED
+        );
     }
 }

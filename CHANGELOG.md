@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-15
+
+### Added
+- **3D Render Batch Limit Management (`muxui::d3`):**
+  - Safe chunked mesh rendering via `d3.draw_trimesh_buffered(&vertices)` with automatic `rlCheckRenderBatchLimit` invocation before chunk drawing to prevent Raylib buffer overflows on procedural meshes (>8,192 vertices).
+  - `Vertex3D` struct with `position`, `color`, and optional `normal` and `uv` coordinates.
+  - Convenience helper `d3.draw_triangles(&positions, &colors)`.
+  - 3D billboard helper `d3.draw_billboard(texture, position, size, tint, &camera)`.
+- **Continuous Mouse Delta Axis Mapping (`muxapp`):**
+  - `MouseAxis` enum supporting horizontal (`X`), vertical (`Y`), and mouse scroll (`Wheel`) axes.
+  - `Input::register_mouse_axis(name, axis, sensitivity)` for continuous analog input.
+  - Composite `Input::get_axis(name)` seamlessly summing keyboard discrete contributions and virtual mouse delta/wheel movements.
+  - Builder method `App::register_mouse_axis(name, axis, sensitivity)`.
+- **Safe Text FFI & 3D Screen Projection (`raylib-rs` / `muxutils`):**
+  - Upgraded `draw_text` and `measure_text` in `raylib-rs` to accept `impl AsRef<str>`, preventing FFI memory smearing and eliminating manual `CString` wrapping.
+  - Added `draw_text_ex_str` and `measure_text_ex_str` for font-based rendering with `&str`.
+  - Added `Color::lerp(&self, target, factor)` for linear color interpolation.
+  - Added `get_virtual_world_to_screen(camera, position)` in `muxutils`, converting 3D coordinates to 2D virtual canvas positions while properly handling camera culling (returns `None` when behind the camera).
+- **Dynamic GSS Element Classes (`muxui` / `muxutils`):**
+  - Added `.with_class(class)` and `.set_class(class)` to `TextElement`, `Button`, and `RectangleElement`.
+  - Hierarchical class-aware style resolution via `get_color_field_with_class`, `get_f32_field_with_class`, and `get_bool_field_with_class` (`element.class.property` -> `element_class.property` -> `class.property` -> `element.property`).
+- **Interactive Verification Demo (`muxtest`):**
+  - Upgraded demo to showcase procedural 12,000+ vertex terrain mesh, continuous mouse look, dynamic GSS alert badge toggling, and in-world 3D HUD waypoint tracking with color pulsing.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

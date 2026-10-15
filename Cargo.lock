@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "muxapp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "muxui",
  "muxutils",
@@ -204,21 +204,21 @@ dependencies = [
 
 [[package]]
 name = "muxtest"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "muxapp",
 ]
 
 [[package]]
 name = "muxui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "muxutils",
 ]
 
 [[package]]
 name = "muxutils"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gss",
  "raylib",
@@ -292,7 +292,6 @@ dependencies = [
 [[package]]
 name = "raylib"
 version = "0.1.0"
-source = "git+https://github.com/MarcosAndradeV/raylib-rs#2b58ee2c622024c96ececbae2bf01db0f5f391ec"
 dependencies = [
  "bindgen",
 ]

@@ -172,6 +172,25 @@ pub fn get_virtual_screen_to_world_ray(camera: raylib::Camera3D) -> raylib::Ray 
     unsafe { raylib::GetScreenToWorldRay(mouse, camera) }
 }
 
+/// Converts a 3D world position to 2D virtual canvas coordinates.
+///
+/// Returns `None` if the target position lies behind the camera plane (`to_point.dot(forward) <= 0.0`).
+pub fn get_virtual_world_to_screen(camera: &raylib::Camera3D, position: raylib::Vector3) -> Option<raylib::Vector2> {
+    let vp = get_viewport_state();
+    let forward = (camera.target - camera.position).normalize();
+    let to_point = position - camera.position;
+    if to_point.dot(forward) <= 0.0 {
+        return None;
+    }
+    let screen_pos = raylib::get_world_to_screen_ex(
+        position,
+        *camera,
+        vp.virtual_width as i32,
+        vp.virtual_height as i32,
+    );
+    Some(screen_pos)
+}
+
 /// Computes the source (OpenGL inverted Y) and destination (window letterbox) rectangles.
 pub fn get_viewport_rects() -> (raylib::Rectangle, raylib::Rectangle) {
     let vp = get_viewport_state();
@@ -468,6 +487,80 @@ pub fn get_bool_field(obj: &gss::Object, name: &str, field: &str, default: bool)
 /// Returns `default` if the field is not present or cannot be parsed as a float.
 pub fn get_f32_field(obj: &gss::Object, path: &[&str], default: f32) -> f32 {
     obj.get_val_or(path, default)
+}
+
+/// Retrieves a color property with class fallback:
+/// 1. `&[name, class, prop]`
+/// 2. `&[&format!("{}_{}", name, class), prop]`
+/// 3. `&[class, prop]`
+/// 4. `&[name, prop]`
+/// 5. `default`
+pub fn get_color_field_with_class(
+    obj: &gss::Object,
+    name: &str,
+    class: Option<&str>,
+    prop: &str,
+    default: raylib::Color,
+) -> raylib::Color {
+    if let Some(cls) = class {
+        if let Some(c) = obj.get_val::<raylib::Color>(&[name, cls, prop]) {
+            return c;
+        }
+        let merged = format!("{}_{}", name, cls);
+        if let Some(c) = obj.get_val::<raylib::Color>(&[&merged, prop]) {
+            return c;
+        }
+        if let Some(c) = obj.get_val::<raylib::Color>(&[cls, prop]) {
+            return c;
+        }
+    }
+    obj.get_val_or(&[name, prop], default)
+}
+
+/// Retrieves a float property with class fallback.
+pub fn get_f32_field_with_class(
+    obj: &gss::Object,
+    name: &str,
+    class: Option<&str>,
+    prop: &str,
+    default: f32,
+) -> f32 {
+    if let Some(cls) = class {
+        if let Some(val) = obj.get_val::<f32>(&[name, cls, prop]) {
+            return val;
+        }
+        let merged = format!("{}_{}", name, cls);
+        if let Some(val) = obj.get_val::<f32>(&[&merged, prop]) {
+            return val;
+        }
+        if let Some(val) = obj.get_val::<f32>(&[cls, prop]) {
+            return val;
+        }
+    }
+    obj.get_val_or(&[name, prop], default)
+}
+
+/// Retrieves a boolean property with class fallback.
+pub fn get_bool_field_with_class(
+    obj: &gss::Object,
+    name: &str,
+    class: Option<&str>,
+    prop: &str,
+    default: bool,
+) -> bool {
+    if let Some(cls) = class {
+        if let Some(val) = obj.get_val::<bool>(&[name, cls, prop]) {
+            return val;
+        }
+        let merged = format!("{}_{}", name, cls);
+        if let Some(val) = obj.get_val::<bool>(&[&merged, prop]) {
+            return val;
+        }
+        if let Some(val) = obj.get_val::<bool>(&[cls, prop]) {
+            return val;
+        }
+    }
+    obj.get_val_or(&[name, prop], default)
 }
 
 /// Retrieves a relative coordinate or float property from the stylesheet [`Style`] at the given path.
@@ -996,5 +1089,80 @@ mod tests {
         let delta = get_virtual_mouse_delta();
         assert_eq!(delta.x, 0.0);
         assert_eq!(delta.y, 0.0);
+    }
+
+    #[test]
+    fn test_class_aware_getters() {
+        let style = gss::parse_str(
+            r#"
+            button = {
+                color = "white",
+                font_size = 18.0,
+                danger = {
+                    color = "red",
+                    font_size = 24.0,
+                },
+            }
+            warning = {
+                color = "yellow",
+            }
+            "#,
+        ).unwrap();
+
+        // 1. Without class -> base
+        assert_eq!(
+            get_color_field_with_class(&style, "button", None, "color", raylib::BLACK),
+            raylib::WHITE
+        );
+        assert_eq!(
+            get_f32_field_with_class(&style, "button", None, "font_size", 12.0),
+            18.0
+        );
+
+        // 2. With specific class -> class override
+        assert_eq!(
+            get_color_field_with_class(&style, "button", Some("danger"), "color", raylib::BLACK),
+            raylib::RED
+        );
+        assert_eq!(
+            get_f32_field_with_class(&style, "button", Some("danger"), "font_size", 12.0),
+            24.0
+        );
+
+        // 3. With global class fallback
+        assert_eq!(
+            get_color_field_with_class(&style, "badge", Some("warning"), "color", raylib::BLACK),
+            raylib::YELLOW
+        );
+
+        // 4. Missing with fallback to default
+        assert_eq!(
+            get_color_field_with_class(&style, "other", Some("missing"), "color", raylib::BLUE),
+            raylib::BLUE
+        );
+    }
+
+    #[test]
+    fn test_virtual_world_to_screen_projection() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        set_viewport(800.0, 600.0, 800.0, 600.0);
+
+        let camera = raylib::Camera3D {
+            position: raylib::Vector3::new(0.0, 0.0, 10.0),
+            target: raylib::Vector3::new(0.0, 0.0, 0.0),
+            up: raylib::Vector3::new(0.0, 1.0, 0.0),
+            fovy: 60.0,
+            projection: raylib::CameraProjection::CAMERA_PERSPECTIVE as i32,
+        };
+
+        // Target in front of camera (z = 0.0 is in front of z = 10.0 looking towards z = 0.0)
+        let in_front = raylib::Vector3::new(0.0, 0.0, 0.0);
+        let screen_pos = get_virtual_world_to_screen(&camera, in_front);
+        assert!(screen_pos.is_some());
+
+        // Target behind camera (z = 20.0 is behind z = 10.0)
+        let behind = raylib::Vector3::new(0.0, 0.0, 20.0);
+        let screen_pos_behind = get_virtual_world_to_screen(&camera, behind);
+        assert!(screen_pos_behind.is_none());
     }
 }

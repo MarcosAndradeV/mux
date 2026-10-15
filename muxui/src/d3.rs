@@ -193,6 +193,83 @@ impl<'a> Render3DContext<'a> {
             DrawGrid(slices, spacing);
         }
     }
+
+    /// Draws a triangle mesh safely chunking draw calls to prevent `rlgl` vertex buffer overflows.
+    ///
+    /// Raylib's internal batch buffer defaults to 8,192 vertices. Pushing large procedural meshes
+    /// without chunking and checking batch limits causes vertices to be dropped silently.
+    /// This method automatically batches vertices into safe slices divisible by 3 (4,095 vertices max per chunk).
+    pub fn draw_trimesh_buffered(&self, vertices: &[Vertex3D]) {
+        const MAX_CHUNK_VERTICES: usize = 4095; // divisible by 3 (1365 triangles)
+        for chunk in vertices.chunks(MAX_CHUNK_VERTICES) {
+            unsafe {
+                rlgl::rlCheckRenderBatchLimit(chunk.len() as i32);
+                rlgl::rlBegin(rlgl::RL_TRIANGLES as i32);
+                for v in chunk {
+                    rlgl::rlColor4ub(v.color.r, v.color.g, v.color.b, v.color.a);
+                    if let Some(norm) = v.normal {
+                        rlgl::rlNormal3f(norm.x, norm.y, norm.z);
+                    }
+                    if let Some(uv) = v.uv {
+                        rlgl::rlTexCoord2f(uv.x, uv.y);
+                    }
+                    rlgl::rlVertex3f(v.position.x, v.position.y, v.position.z);
+                }
+                rlgl::rlEnd();
+            }
+        }
+    }
+
+    /// Convenience method to draw flat colored triangles from position and color slices.
+    pub fn draw_triangles(&self, positions: &[Vector3], colors: &[Color]) {
+        let count = positions.len().min(colors.len());
+        let vertices: Vec<Vertex3D> = (0..count)
+            .map(|i| Vertex3D::new(positions[i], colors[i]))
+            .collect();
+        self.draw_trimesh_buffered(&vertices);
+    }
+
+    /// Draws a 3D billboard texture facing the camera.
+    pub fn draw_billboard(&self, texture: Texture2D, position: Vector3, size: f32, tint: Color, camera: &Camera3D) {
+        draw_billboard(*camera, texture, position, size, tint);
+    }
+}
+
+/// A 3D vertex with position, color, and optional normal and texture coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vertex3D {
+    /// 3D position vector.
+    pub position: Vector3,
+    /// Vertex color.
+    pub color: Color,
+    /// Optional surface normal vector.
+    pub normal: Option<Vector3>,
+    /// Optional UV texture coordinates.
+    pub uv: Option<Vector2>,
+}
+
+impl Vertex3D {
+    /// Creates a new vertex with position and color.
+    pub fn new(position: Vector3, color: Color) -> Self {
+        Self {
+            position,
+            color,
+            normal: None,
+            uv: None,
+        }
+    }
+
+    /// Sets the normal vector for this vertex.
+    pub fn with_normal(mut self, normal: Vector3) -> Self {
+        self.normal = Some(normal);
+        self
+    }
+
+    /// Sets the UV texture coordinates for this vertex.
+    pub fn with_uv(mut self, uv: Vector2) -> Self {
+        self.uv = Some(uv);
+        self
+    }
 }
 
 /// Executes a 3D rendering pass with the specified [`Camera3D`].
@@ -245,5 +322,17 @@ mod tests {
         assert_eq!(custom_cam.up, Vector3::new(0.0, 0.0, 1.0));
         assert_eq!(custom_cam.fovy, 75.0);
         assert_eq!(custom_cam.projection, CameraProjection::CAMERA_ORTHOGRAPHIC as i32);
+    }
+
+    #[test]
+    fn test_vertex_3d_builder() {
+        let v = Vertex3D::new(Vector3::new(1.0, 2.0, 3.0), RED)
+            .with_normal(Vector3::new(0.0, 1.0, 0.0))
+            .with_uv(Vector2::new(0.5, 0.5));
+
+        assert_eq!(v.position, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(v.color, RED);
+        assert_eq!(v.normal, Some(Vector3::new(0.0, 1.0, 0.0)));
+        assert_eq!(v.uv, Some(Vector2::new(0.5, 0.5)));
     }
 }

@@ -213,6 +213,12 @@ impl<Context> App<Context> {
         self
     }
 
+    /// Registers a continuous mouse delta axis with a sensitivity multiplier.
+    pub fn register_mouse_axis(mut self, name: impl Into<String>, axis: MouseAxis, sensitivity: f32) -> Self {
+        self.input.register_mouse_axis(name, axis, sensitivity);
+        self
+    }
+
     /// Sets the callback function to run on every frame update.
     ///
     /// The update function is called on every frame and is responsible for processing events,
