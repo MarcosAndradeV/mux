@@ -14,5 +14,5 @@ gss = { git = "https://github.com/MarcosAndradeV/GSS", version = "0.1.0", featur
 notify = "8.2.0"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"

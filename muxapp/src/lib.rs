@@ -79,6 +79,8 @@ pub struct App<Context> {
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
+    exit_key: Option<Option<KeyboardKey>>,
+    cursor_mode: CursorMode,
     init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
 
@@ -129,6 +131,8 @@ impl<Context> App<Context> {
             style_file: None,
             fps: muxutils::DEFAULT_FPS,
             audio_device: false,
+            exit_key: None,
+            cursor_mode: CursorMode::Normal,
             init_context: Box::new(init_context),
         }
     }
@@ -171,6 +175,24 @@ impl<Context> App<Context> {
         self
     }
 
+    /// Safely configures the key that closes the application window (passing `None` disables `KEY_ESCAPE` exit).
+    pub fn set_exit_key(mut self, key: Option<KeyboardKey>) -> Self {
+        self.exit_key = Some(key);
+        self
+    }
+
+    /// Safely disables the default `KEY_ESCAPE` window-close shortcut so `KEY_ESCAPE` can be used for pause menus.
+    pub fn disable_exit_key(mut self) -> Self {
+        self.exit_key = Some(None);
+        self
+    }
+
+    /// Configures the initial mouse cursor mode (`Normal`, `Hidden`, or `Captured`).
+    pub fn set_cursor_mode(mut self, mode: CursorMode) -> Self {
+        self.cursor_mode = mode;
+        self
+    }
+
     /// Registers a scene with a unique identifier.
     ///
     /// If no active scene has been set yet, this scene becomes the initial active scene.
@@ -198,6 +220,12 @@ impl<Context> App<Context> {
     /// Registers a named action mapped to one or more keyboard keys.
     pub fn register_action(mut self, name: impl Into<String>, keys: impl IntoIterator<Item = KeyboardKey>) -> Self {
         self.input.register_action(name, keys);
+        self
+    }
+
+    /// Registers a named UI/system action mapped to keyboard keys that remains active even when gameplay input is masked.
+    pub fn register_ui_action(mut self, name: impl Into<String>, keys: impl IntoIterator<Item = KeyboardKey>) -> Self {
+        self.input.register_ui_action(name, keys);
         self
     }
 
@@ -289,6 +317,8 @@ impl<Context> App<Context> {
             style_file,
             fps,
             audio_device,
+            exit_key,
+            cursor_mode,
             init_context,
         } = self;
         log_info!(
@@ -301,6 +331,10 @@ impl<Context> App<Context> {
         );
         set_config_flags(&[FLAG_WINDOW_RESIZABLE]);
         init_window(width, height, cstr!(&title));
+        if let Some(key_opt) = exit_key {
+            muxutils::set_exit_key(key_opt);
+        }
+        muxutils::set_cursor_mode(cursor_mode);
         if audio_device {
             log_info!("MUX: Initializing audio device");
             init_audio_device();
@@ -444,26 +478,12 @@ impl<Context> App<Context> {
             begin_texture_mode(target);
             clear_background(get_color(0x181818FF));
 
-            if let Some(scene) = scenes.active_scene_mut() {
-                let action = scene.update(&mut context, &input, &style, dt);
-                scene.draw_3d(&context);
-                scene.draw_2d(&mut context, &style);
-                match action {
-                    SceneAction::Switch(target_name) => {
-                        scenes.switch(&target_name, &mut context, &style);
-                    }
-                    SceneAction::Push(target_name) => {
-                        scenes.push(&target_name, &mut context, &style);
-                    }
-                    SceneAction::Pop => {
-                        scenes.pop(&mut context);
-                    }
-                    SceneAction::None => {}
+            if !scenes.step(&mut context, &input, &style, dt) {
+                if let Some(ref update_input) = update_with_input {
+                    update_input(&mut context, &input, &style, dt);
+                } else {
+                    update(&mut context, &style);
                 }
-            } else if let Some(ref update_input) = update_with_input {
-                update_input(&mut context, &input, &style, dt);
-            } else {
-                update(&mut context, &style);
             }
             end_texture_mode();
 
@@ -553,9 +573,12 @@ mod tests {
             .set_responsive(false)
             .set_virtual_resolution(1920, 1080)
             .set_audio_device()
+            .disable_exit_key()
+            .set_cursor_mode(CursorMode::Captured)
             .set_fps(60)
             .set_style_file("custom.gss")
             .register_action("jump", [KEY_SPACE])
+            .register_ui_action("pause", [KEY_ESCAPE])
             .register_axis("pitch", KEY_W, KEY_S)
             .on_update(|ctx, _style| {
                 ctx.push_str("_updated");
@@ -575,6 +598,8 @@ mod tests {
         assert_eq!(app.title, "Configured App");
         assert_eq!(app.fps, 60);
         assert!(app.audio_device);
+        assert_eq!(app.exit_key, Some(None));
+        assert_eq!(app.cursor_mode, CursorMode::Captured);
         assert_eq!(app.style_file, Some(PathBuf::from("custom.gss")));
         assert!(app.update.is_some());
         assert!(app.update_with_input.is_some());

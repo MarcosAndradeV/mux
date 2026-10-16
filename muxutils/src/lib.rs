@@ -693,6 +693,129 @@ pub fn load_texture_from_image(image: raylib::Image) -> raylib::Texture2D {
     unsafe { raylib::LoadTextureFromImage(image) }
 }
 
+static UI_INPUT_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Enables or disables UI element hit-testing and mouse interactions globally.
+///
+/// Used by the scene router to prevent background scenes from receiving button/slider clicks
+/// while a modal overlay scene is rendered on top.
+pub fn set_ui_input_enabled(enabled: bool) {
+    UI_INPUT_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Returns `true` if UI element hit-testing and mouse interactions are currently enabled.
+pub fn is_ui_input_enabled() -> bool {
+    UI_INPUT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Safely configures the keyboard key that closes the application window.
+///
+/// Passing `None` disables the automatic exit key (e.g., preventing `KEY_ESCAPE` from terminating the app).
+pub fn set_exit_key(key: Option<raylib::KeyboardKey>) {
+    if is_window_ready() {
+        let code = key.map(|k| k as i32).unwrap_or(0);
+        unsafe {
+            raylib::SetExitKey(code);
+        }
+    }
+}
+
+/// Safely disables the default `KEY_ESCAPE` window-close behavior so `KEY_ESCAPE` can be used for in-game pause menus.
+pub fn disable_exit_key() {
+    set_exit_key(None);
+}
+
+/// Hardware cursor visibility and capture modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorMode {
+    /// Standard visible OS cursor (default).
+    #[default]
+    Normal,
+    /// Cursor is hidden while hovering over the window, but not locked.
+    Hidden,
+    /// Cursor is hidden and locked to the window for continuous 3D mouselook.
+    Captured,
+}
+
+/// Safely shows the hardware cursor if the window is ready.
+pub fn show_cursor() {
+    if is_window_ready() {
+        unsafe {
+            raylib::ShowCursor();
+        }
+    }
+}
+
+/// Safely hides the hardware cursor if the window is ready.
+pub fn hide_cursor() {
+    if is_window_ready() {
+        unsafe {
+            raylib::HideCursor();
+        }
+    }
+}
+
+/// Safely applies a [`CursorMode`] (normal, hidden, or captured) when the window is initialized.
+pub fn set_cursor_mode(mode: CursorMode) {
+    if is_window_ready() {
+        match mode {
+            CursorMode::Normal => {
+                raylib::enable_cursor();
+                show_cursor();
+            }
+            CursorMode::Hidden => {
+                raylib::enable_cursor();
+                hide_cursor();
+            }
+            CursorMode::Captured => {
+                raylib::disable_cursor();
+            }
+        }
+    }
+}
+
+/// Returns `true` if the mouse cursor is currently hidden/captured.
+pub fn is_cursor_hidden() -> bool {
+    if is_window_ready() {
+        unsafe { raylib::IsCursorHidden() }
+    } else {
+        false
+    }
+}
+
+/// Returns `true` if the application window is currently focused.
+pub fn is_window_focused() -> bool {
+    if is_window_ready() {
+        unsafe { raylib::IsWindowFocused() }
+    } else {
+        true
+    }
+}
+
+/// Returns `true` if the stylesheet contains an entry for the selector `name`.
+pub fn has_selector(obj: &gss::Object, name: &str) -> bool {
+    if name.is_empty() {
+        return true;
+    }
+    let norm = normalize_path(&[name]);
+    obj.get::<gss::Object>(&norm).is_some()
+}
+
+static WARNED_SELECTORS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+/// Emits a one-time terminal warning if `name` is not found in a non-empty stylesheet.
+pub fn warn_missing_selector(obj: &gss::Object, name: &str) {
+    if name.is_empty() || obj.get_fields().len() == 0 || has_selector(obj, name) {
+        return;
+    }
+    if let Ok(mut warned) = WARNED_SELECTORS.lock()
+        && warned.insert(name.to_string())
+    {
+        log_warn!("MUX: GSS selector '{}' not found in stylesheet.", name);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1164,5 +1287,30 @@ mod tests {
         let behind = raylib::Vector3::new(0.0, 0.0, 20.0);
         let screen_pos_behind = get_virtual_world_to_screen(&camera, behind);
         assert!(screen_pos_behind.is_none());
+    }
+
+    #[test]
+    fn test_selector_diagnostics_and_ui_input_gate() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let style = gss::parse_str(
+            r#"
+            header = { color = "white" }
+            "#,
+        )
+        .unwrap();
+
+        assert!(has_selector(&style, "header"));
+        assert!(!has_selector(&style, "missing_selector"));
+        warn_missing_selector(&style, "missing_selector");
+
+        set_ui_input_enabled(false);
+        assert!(!is_ui_input_enabled());
+        set_ui_input_enabled(true);
+        assert!(is_ui_input_enabled());
+
+        // Safe in headless mode
+        disable_exit_key();
+        assert!(!is_cursor_hidden());
+        assert!(is_window_focused());
     }
 }

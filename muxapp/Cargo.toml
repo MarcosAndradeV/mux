@@ -5,5 +5,5 @@ edition.workspace = true
 
 [dependencies]
 notify = { workspace = true }
-muxui = { path = "../muxui", version = "0.3.0" }
-muxutils = { path = "../muxutils", version = "0.3.0" }
+muxui = { path = "../muxui", version = "0.4.0" }
+muxutils = { path = "../muxutils", version = "0.4.0" }

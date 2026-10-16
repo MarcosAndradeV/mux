@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "muxapp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "muxui",
  "muxutils",
@@ -204,21 +204,21 @@ dependencies = [
 
 [[package]]
 name = "muxtest"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "muxapp",
 ]
 
 [[package]]
 name = "muxui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "muxutils",
 ]
 
 [[package]]
 name = "muxutils"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gss",
  "raylib",

@@ -21,6 +21,9 @@ pub use muxutils::*;
 pub mod d3;
 pub use d3::*;
 
+pub mod camera;
+pub use camera::*;
+
 /// The interaction response returned when placing or checking interactive elements.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Response {
@@ -90,6 +93,7 @@ pub trait Element {
     /// * `style` - The stylesheet context.
     /// * `name` - The unique style selector name.
     fn place(&self, style: &Style, name: &str) {
+        warn_missing_selector(style, name);
         let rec = self.get_rec(style, name);
         if is_rect_on_screen(rec) {
             let position = Vector2 { x: rec.x, y: rec.y };
@@ -673,6 +677,7 @@ impl<E: Element> Button<E> {
 
     /// Measures, positions, and draws the button, returning an interaction [`Response`].
     pub fn place(&self, style: &Style, name: &str) -> Response {
+        warn_missing_selector(style, name);
         let rec = self.get_rec(style, name);
         if is_rect_on_screen(rec) {
             let position = Vector2 { x: rec.x, y: rec.y };
@@ -702,8 +707,9 @@ impl<E: Element> Element for Button<E> {
         self.rect.set(rec);
 
         // Hit-test against current frame virtual mouse coordinates
+        let input_enabled = is_ui_input_enabled();
         let mouse_pos = get_virtual_mouse_position();
-        let is_hovered = !self.disabled && check_collision_point_rec(mouse_pos, rec);
+        let is_hovered = input_enabled && !self.disabled && check_collision_point_rec(mouse_pos, rec);
         let is_pressed = is_hovered && is_mouse_button_down(MOUSE_BUTTON_LEFT);
         let is_clicked = is_hovered && is_mouse_button_pressed(MOUSE_BUTTON_LEFT);
 
@@ -1134,6 +1140,386 @@ impl Element for RectangleElement {
             get_relative_field(style, &[name, "width"], screen_w, 0.0),
             get_relative_field(style, &[name, "height"], screen_h, 0.0),
         )
+    }
+}
+
+/// An interactive horizontal slider widget for tuning numeric parameters (`f32`).
+///
+/// Can be placed standalone or inside [`StackLayout`] / [`GridLayout`] containers.
+///
+/// # GSS Properties
+/// - `width` - Slider track width (defaults to `200.0`).
+/// - `height` - Slider track height (defaults to `24.0`).
+/// - `background_color` / `bg` - Track background color (defaults to `0x2A2A35FF`).
+/// - `fill_color` / `active_color` - Filled portion color (defaults to `SKYBLUE`).
+/// - `color` - Text label color (defaults to `WHITE`).
+/// - `font_size` - Label font size (defaults to `16.0`).
+pub struct Slider {
+    min: f32,
+    max: f32,
+    step: Option<f32>,
+    label: Option<String>,
+    /// Optional dynamic stylesheet class.
+    pub class: Option<String>,
+    value: std::cell::Cell<f32>,
+    changed: std::cell::Cell<bool>,
+    hovered: std::cell::Cell<bool>,
+    dragging: std::cell::Cell<bool>,
+    rect: std::cell::Cell<Rectangle>,
+}
+
+impl Slider {
+    /// Creates a new [`Slider`] over `[min, max]` initialized to `value`.
+    pub fn new(min: f32, max: f32, value: f32) -> Self {
+        let clamped = value.clamp(min.min(max), min.max(max));
+        Self {
+            min,
+            max,
+            step: None,
+            label: None,
+            class: None,
+            value: std::cell::Cell::new(clamped),
+            changed: std::cell::Cell::new(false),
+            hovered: std::cell::Cell::new(false),
+            dragging: std::cell::Cell::new(false),
+            rect: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+        }
+    }
+
+    /// Sets an optional quantization step increment (e.g. `1.0` or `0.5`).
+    pub fn with_step(mut self, step: f32) -> Self {
+        if step > 0.0 {
+            self.step = Some(step);
+        }
+        self
+    }
+
+    /// Alias for [`with_step`].
+    pub fn step(self, step: f32) -> Self {
+        self.with_step(step)
+    }
+
+    /// Sets an optional text label rendered inside the slider.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Sets an optional GSS style class name.
+    pub fn with_class(mut self, class: impl Into<String>) -> Self {
+        self.class = Some(class.into());
+        self
+    }
+
+    /// Returns the current slider value.
+    pub fn value(&self) -> f32 {
+        self.value.get()
+    }
+
+    /// Returns `true` if the slider value was modified by user input this frame.
+    pub fn changed(&self) -> bool {
+        self.changed.get()
+    }
+
+    /// Returns `true` if the mouse cursor is hovering over the slider.
+    pub fn hovered(&self) -> bool {
+        self.hovered.get()
+    }
+
+    /// Returns the resolved bounding rectangle of the slider.
+    pub fn rect(&self) -> Rectangle {
+        self.rect.get()
+    }
+
+    /// If the slider was adjusted this frame, writes the new value to `target` and returns `true`.
+    pub fn apply(&self, target: &mut f32) -> bool {
+        if self.changed.get() {
+            *target = self.value.get();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Evaluates a normalized ratio `t` in `[0.0, 1.0]` and updates the internal value.
+    pub fn set_normalized(&self, t: f32) {
+        let t = t.clamp(0.0, 1.0);
+        let mut raw = self.min + t * (self.max - self.min);
+        if let Some(step) = self.step
+            && step > 0.0
+        {
+            raw = ((raw - self.min) / step).round() * step + self.min;
+        }
+        let next = raw.clamp(self.min.min(self.max), self.min.max(self.max));
+        if (next - self.value.get()).abs() > f32::EPSILON {
+            self.value.set(next);
+            self.changed.set(true);
+        }
+    }
+
+    /// Measures, positions, and draws the slider, returning its current `f32` value.
+    pub fn place(&self, style: &Style, name: &str) -> f32 {
+        warn_missing_selector(style, name);
+        let rec = self.get_rec(style, name);
+        if is_rect_on_screen(rec) {
+            self.draw(Vector2::new(rec.x, rec.y), style, name);
+            if is_window_ready() && get_bool_field(style, name, "frame", false) {
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
+        }
+        self.value.get()
+    }
+
+    /// Immediate-mode helper that places a slider bound directly to `target` and returns `true` if modified.
+    pub fn bind(min: f32, max: f32, target: &mut f32, style: &Style, name: &str) -> bool {
+        let slider = Self::new(min, max, *target);
+        slider.place(style, name);
+        slider.apply(target)
+    }
+}
+
+impl Element for Slider {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let size = self.measure(style, name);
+        let rec = Rectangle::new(position.x, position.y, size.x, size.y);
+        self.rect.set(rec);
+
+        let input_enabled = is_ui_input_enabled();
+        let mouse_pos = get_virtual_mouse_position();
+        let is_hovered = input_enabled && check_collision_point_rec(mouse_pos, rec);
+        let is_dragging = is_hovered && is_mouse_button_down(MOUSE_BUTTON_LEFT);
+
+        self.hovered.set(is_hovered);
+        self.dragging.set(is_dragging);
+
+        if is_dragging && rec.width > 0.0 {
+            let t = ((mouse_pos.x - rec.x) / rec.width).clamp(0.0, 1.0);
+            self.set_normalized(t);
+        }
+
+        if !is_window_ready() {
+            return;
+        }
+
+        let bg_color = get_color_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "background_color",
+            get_color_field_with_class(style, name, self.class.as_deref(), "bg", get_color(0x2A2A35FF)),
+        );
+        let fill_color = get_color_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "fill_color",
+            get_color_field_with_class(style, name, self.class.as_deref(), "active_color", SKYBLUE),
+        );
+        let text_color = get_color_field_with_class(style, name, self.class.as_deref(), "color", WHITE);
+        let font_size = get_f32_field_with_class(style, name, self.class.as_deref(), "font_size", 16.0);
+
+        draw_rectangle_rec(rec, bg_color);
+
+        let range = (self.max - self.min).abs().max(f32::EPSILON);
+        let ratio = ((self.value.get() - self.min) / range).clamp(0.0, 1.0);
+        let fill_rec = Rectangle::new(rec.x, rec.y, rec.width * ratio, rec.height);
+        draw_rectangle_rec(fill_rec, fill_color);
+
+        // Draw knob indicator
+        let knob_w = 6.0f32.min(rec.width);
+        let knob_x = (rec.x + rec.width * ratio - knob_w * 0.5).clamp(rec.x, rec.x + rec.width - knob_w);
+        draw_rectangle_rec(Rectangle::new(knob_x, rec.y, knob_w, rec.height), WHITE);
+
+        let display_str = match &self.label {
+            Some(lbl) => format!("{}: {:.1}", lbl, self.value.get()),
+            None => format!("{:.1}", self.value.get()),
+        };
+        let text_w = measure_text(&display_str, font_size as i32) as f32;
+        let text_x = rec.x + ((rec.width - text_w) * 0.5).max(4.0);
+        let text_y = rec.y + ((rec.height - font_size) * 0.5).max(0.0);
+        draw_text(&display_str, text_x as i32, text_y as i32, font_size as i32, text_color);
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let screen_w = get_virtual_screen_width();
+        let screen_h = get_virtual_screen_height();
+        let width = get_optional_relative_field(style, &[name, "width"], screen_w).unwrap_or(200.0);
+        let height = get_optional_relative_field(style, &[name, "height"], screen_h).unwrap_or(24.0);
+        Vector2::new(width, height)
+    }
+}
+
+/// An interactive boolean checkbox / toggle widget.
+///
+/// Can be placed standalone or inside [`StackLayout`] / [`GridLayout`] containers.
+///
+/// # GSS Properties
+/// - `color` - Text label color (defaults to `WHITE`).
+/// - `background_color` / `bg` - Box background color (defaults to `0x2A2A35FF`).
+/// - `active_color` / `check_color` - Checkmark fill color when checked (defaults to `LIME`).
+/// - `font_size` - Label font size and box dimension (defaults to `18.0`).
+pub struct Checkbox {
+    label: String,
+    /// Optional dynamic stylesheet class.
+    pub class: Option<String>,
+    checked: std::cell::Cell<bool>,
+    toggled: std::cell::Cell<bool>,
+    hovered: std::cell::Cell<bool>,
+    rect: std::cell::Cell<Rectangle>,
+}
+
+impl Checkbox {
+    /// Creates a new [`Checkbox`] with the given text label and initial `checked` state.
+    pub fn new(label: impl Into<String>, checked: bool) -> Self {
+        Self {
+            label: label.into(),
+            class: None,
+            checked: std::cell::Cell::new(checked),
+            toggled: std::cell::Cell::new(false),
+            hovered: std::cell::Cell::new(false),
+            rect: std::cell::Cell::new(Rectangle::new(0.0, 0.0, 0.0, 0.0)),
+        }
+    }
+
+    /// Sets an optional GSS style class name.
+    pub fn with_class(mut self, class: impl Into<String>) -> Self {
+        self.class = Some(class.into());
+        self
+    }
+
+    /// Returns `true` if the checkbox is currently checked.
+    pub fn is_checked(&self) -> bool {
+        self.checked.get()
+    }
+
+    /// Returns `true` if the checkbox was clicked/toggled this frame.
+    pub fn toggled(&self) -> bool {
+        self.toggled.get()
+    }
+
+    /// Returns `true` if the mouse cursor is hovering over the checkbox.
+    pub fn hovered(&self) -> bool {
+        self.hovered.get()
+    }
+
+    /// Returns the resolved bounding rectangle of the checkbox.
+    pub fn rect(&self) -> Rectangle {
+        self.rect.get()
+    }
+
+    /// If the checkbox was toggled this frame, updates `target` and returns `true`.
+    pub fn apply(&self, target: &mut bool) -> bool {
+        if self.toggled.get() {
+            *target = self.checked.get();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Measures, positions, and draws the checkbox, returning an interaction [`Response`].
+    pub fn place(&self, style: &Style, name: &str) -> Response {
+        warn_missing_selector(style, name);
+        let rec = self.get_rec(style, name);
+        if is_rect_on_screen(rec) {
+            self.draw(Vector2::new(rec.x, rec.y), style, name);
+            if is_window_ready() && get_bool_field(style, name, "frame", false) {
+                draw_rectangle_lines_ex(rec, DEBUG_FRAME_LINE_THICK, GREEN);
+            }
+        }
+        Response {
+            clicked: self.toggled.get(),
+            hovered: self.hovered.get(),
+            pressed: self.hovered.get() && is_mouse_button_down(MOUSE_BUTTON_LEFT),
+            rect: self.rect.get(),
+        }
+    }
+
+    /// Immediate-mode helper that places a checkbox bound directly to `target` and returns `true` if toggled.
+    pub fn bind(label: impl Into<String>, target: &mut bool, style: &Style, name: &str) -> bool {
+        let chk = Self::new(label, *target);
+        chk.place(style, name);
+        chk.apply(target)
+    }
+}
+
+impl Element for Checkbox {
+    fn draw(&self, position: Vector2, style: &Style, name: &str) {
+        let size = self.measure(style, name);
+        let rec = Rectangle::new(position.x, position.y, size.x, size.y);
+        self.rect.set(rec);
+
+        let input_enabled = is_ui_input_enabled();
+        let mouse_pos = get_virtual_mouse_position();
+        let is_hovered = input_enabled && check_collision_point_rec(mouse_pos, rec);
+        let is_clicked = is_hovered && is_mouse_button_pressed(MOUSE_BUTTON_LEFT);
+
+        self.hovered.set(is_hovered);
+        self.toggled.set(is_clicked);
+        if is_clicked {
+            self.checked.set(!self.checked.get());
+        }
+
+        if !is_window_ready() {
+            return;
+        }
+
+        let font_size = get_f32_field_with_class(style, name, self.class.as_deref(), "font_size", 18.0);
+        let box_size = font_size.max(14.0);
+        let box_y = position.y + ((size.y - box_size) * 0.5).max(0.0);
+        let box_rec = Rectangle::new(position.x, box_y, box_size, box_size);
+
+        let bg_color = get_color_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "background_color",
+            get_color_field_with_class(style, name, self.class.as_deref(), "bg", get_color(0x2A2A35FF)),
+        );
+        let check_color = get_color_field_with_class(
+            style,
+            name,
+            self.class.as_deref(),
+            "check_color",
+            get_color_field_with_class(style, name, self.class.as_deref(), "active_color", LIME),
+        );
+        let text_color = get_color_field_with_class(style, name, self.class.as_deref(), "color", WHITE);
+
+        draw_rectangle_rec(box_rec, bg_color);
+        draw_rectangle_lines_ex(box_rec, 2.0, if is_hovered { WHITE } else { GRAY });
+
+        if self.checked.get() {
+            let pad = 4.0;
+            let inner = Rectangle::new(
+                box_rec.x + pad,
+                box_rec.y + pad,
+                (box_rec.width - pad * 2.0).max(2.0),
+                (box_rec.height - pad * 2.0).max(2.0),
+            );
+            draw_rectangle_rec(inner, check_color);
+        }
+
+        let text_x = position.x + box_size + 8.0;
+        let text_y = position.y + ((size.y - font_size) * 0.5).max(0.0);
+        draw_text(&self.label, text_x as i32, text_y as i32, font_size as i32, text_color);
+    }
+
+    fn measure(&self, style: &Style, name: &str) -> Vector2 {
+        let screen_w = get_virtual_screen_width();
+        let screen_h = get_virtual_screen_height();
+        let font_size = get_f32_field_with_class(style, name, self.class.as_deref(), "font_size", 18.0);
+        let box_size = font_size.max(14.0);
+        let text_w = if is_window_ready() {
+            measure_text(&self.label, font_size as i32) as f32
+        } else {
+            self.label.len() as f32 * (font_size * 0.55)
+        };
+        let default_w = box_size + 8.0 + text_w;
+        let default_h = box_size.max(font_size) + 4.0;
+
+        let width = get_optional_relative_field(style, &[name, "width"], screen_w).unwrap_or(default_w);
+        let height = get_optional_relative_field(style, &[name, "height"], screen_h).unwrap_or(default_h);
+        Vector2::new(width.max(default_w), height.max(default_h))
     }
 }
 
@@ -2061,5 +2447,47 @@ mod tests {
             get_color_field_with_class(&style, "btn", btn_danger.class.as_deref(), "background_color", BLANK),
             RED
         );
+    }
+
+    #[test]
+    fn test_slider_and_checkbox_widgets() {
+        let style = parse_str(
+            r#"
+            fov_slider = {
+                width = 300,
+                height = 30,
+            }
+            chk_wire = {
+                font_size = 20,
+            }
+            "#,
+        )
+        .unwrap();
+
+        let slider = Slider::new(50.0, 110.0, 75.0)
+            .with_step(5.0)
+            .with_label("FOV")
+            .with_class("primary");
+        assert_eq!(slider.value(), 75.0);
+        assert!(!slider.changed());
+
+        let dim = slider.measure(&style, "fov_slider");
+        assert_eq!(dim, Vector2::new(300.0, 30.0));
+
+        // Normalized value setting and step snapping: 0.5 -> 80.0
+        slider.set_normalized(0.5);
+        assert_eq!(slider.value(), 80.0);
+        assert!(slider.changed());
+
+        let mut target_fov = 75.0;
+        assert!(slider.apply(&mut target_fov));
+        assert_eq!(target_fov, 80.0);
+
+        let chk = Checkbox::new("Wireframe", false).with_class("toggle");
+        assert!(!chk.is_checked());
+        assert!(!chk.toggled());
+        let chk_dim = chk.measure(&style, "chk_wire");
+        assert!(chk_dim.x > 20.0);
+        assert_eq!(chk_dim.y, 24.0);
     }
 }

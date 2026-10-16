@@ -6,4 +6,4 @@ edition.workspace = true
 [features]
 
 [dependencies]
-muxutils = { path = "../muxutils", version = "0.3.0" }
+muxutils = { path = "../muxutils", version = "0.4.0" }

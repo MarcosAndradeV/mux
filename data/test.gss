@@ -123,3 +123,24 @@ hud_waypoint = {
     font_size = 14.0,
     color = "gold",
 }
+
+speed_slider = {
+    top = 68%,
+    left = 50%,
+    align = "center",
+    width = 240,
+    height = 26,
+    bg = 0x222230FF,
+    fill_color = 0x3D5E8CFF,
+    font_size = 16.0,
+    color = "white",
+}
+
+chk_wireframe = {
+    top = 75%,
+    left = 50%,
+    align = "center",
+    font_size = 18.0,
+    color = "white",
+    check_color = "lime",
+}

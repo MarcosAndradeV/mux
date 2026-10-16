@@ -2,7 +2,7 @@
 //!
 //! Abstracts physical hardware inputs (keyboard keys, mouse buttons) into semantic actions and axes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use muxui::raylib::*;
 use muxui::*;
 
@@ -24,6 +24,8 @@ pub struct Input {
     mouse_actions: HashMap<String, Vec<MouseButton>>,
     axes: HashMap<String, (KeyboardKey, KeyboardKey)>,
     mouse_axes: HashMap<String, (MouseAxis, f32)>,
+    unmasked_actions: HashSet<String>,
+    masked: bool,
 }
 
 impl Input {
@@ -35,6 +37,28 @@ impl Input {
     /// Registers a named action mapped to one or more keyboard keys.
     pub fn register_action(&mut self, name: impl Into<String>, keys: impl IntoIterator<Item = KeyboardKey>) {
         self.actions.insert(name.into(), keys.into_iter().collect());
+    }
+
+    /// Registers a named UI/system action mapped to keyboard keys that remains active even when gameplay input is masked.
+    pub fn register_ui_action(&mut self, name: impl Into<String>, keys: impl IntoIterator<Item = KeyboardKey>) {
+        let name_str = name.into();
+        self.unmasked_actions.insert(name_str.clone());
+        self.actions.insert(name_str, keys.into_iter().collect());
+    }
+
+    /// Marks an existing action name as allowed even when gameplay input is masked.
+    pub fn allow_when_masked(&mut self, name: impl Into<String>) {
+        self.unmasked_actions.insert(name.into());
+    }
+
+    /// Sets whether gameplay actions and axes are currently masked (e.g. during modal dialogs or text input).
+    pub fn set_masked(&mut self, masked: bool) {
+        self.masked = masked;
+    }
+
+    /// Returns `true` if gameplay input is currently masked.
+    pub fn is_masked(&self) -> bool {
+        self.masked
     }
 
     /// Registers a named action mapped to one or more mouse buttons.
@@ -54,6 +78,9 @@ impl Input {
 
     /// Returns `true` if any key or button mapped to `action` is currently held down.
     pub fn is_action_down(&self, action: &str) -> bool {
+        if self.masked && !self.unmasked_actions.contains(action) {
+            return false;
+        }
         if let Some(keys) = self.actions.get(action) {
             for &key in keys {
                 if is_key_down(key) {
@@ -73,6 +100,9 @@ impl Input {
 
     /// Returns `true` if any key or button mapped to `action` was pressed in the current frame.
     pub fn is_action_pressed(&self, action: &str) -> bool {
+        if self.masked && !self.unmasked_actions.contains(action) {
+            return false;
+        }
         if let Some(keys) = self.actions.get(action) {
             for &key in keys {
                 if is_key_pressed(key) {
@@ -92,9 +122,13 @@ impl Input {
 
     /// Computes the axis value, combining keyboard input and mouse delta if registered.
     ///
+    /// - Returns `0.0` if gameplay input is currently masked via [`Input::set_masked`].
     /// - Keyboard contributions range between `[-1.0, 1.0]`.
     /// - Mouse contributions scale virtual delta/wheel by the configured sensitivity.
     pub fn get_axis(&self, name: &str) -> f32 {
+        if self.masked {
+            return 0.0;
+        }
         let mut val = 0.0;
         if let Some(&(pos, neg)) = self.axes.get(name) {
             if is_key_down(pos) {
@@ -135,16 +169,25 @@ mod tests {
     fn test_input_registration_and_axes() {
         let mut input = Input::new();
         input.register_action("jump", [KEY_SPACE, KEY_W]);
+        input.register_ui_action("pause", [KEY_ESCAPE, KEY_P]);
         input.register_mouse_action("fire", [MOUSE_BUTTON_LEFT]);
         input.register_axis("horizontal", KEY_D, KEY_A);
         input.register_mouse_axis("pitch", MouseAxis::Y, 0.05);
 
         assert!(input.actions.contains_key("jump"));
+        assert!(input.actions.contains_key("pause"));
+        assert!(input.unmasked_actions.contains("pause"));
         assert!(input.mouse_actions.contains_key("fire"));
         assert!(input.axes.contains_key("horizontal"));
         assert!(input.mouse_axes.contains_key("pitch"));
 
-        // In headless mode without key inputs, axis defaults to 0.0
+        // Test masking state
+        assert!(!input.is_masked());
+        input.set_masked(true);
+        assert!(input.is_masked());
+        assert_eq!(input.get_axis("horizontal"), 0.0);
+
+        input.set_masked(false);
         assert_eq!(input.get_axis("horizontal"), 0.0);
         assert_eq!(input.get_axis("pitch"), 0.0);
         assert_eq!(input.get_axis("nonexistent"), 0.0);

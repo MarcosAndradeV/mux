@@ -115,6 +115,23 @@ impl<'a> Render3DContext<'a> {
         }
     }
 
+    /// Multiplies the current OpenGL matrix by the given 4x4 [`Matrix`] without requiring `unsafe` pointer casts.
+    pub fn mult_matrix(&mut self, matrix: &Matrix) {
+        unsafe {
+            rlgl::rlMultMatrixf(matrix as *const Matrix as *const f32);
+        }
+    }
+
+    /// Draws a retained GPU-resident [`GpuMesh`] at the current matrix transform.
+    pub fn draw_mesh(&self, mesh: &GpuMesh) {
+        self.draw_mesh_transformed(mesh, Matrix::identity());
+    }
+
+    /// Draws a retained GPU-resident [`GpuMesh`] with an explicit model [`Matrix`] transform.
+    pub fn draw_mesh_transformed(&self, mesh: &GpuMesh, transform: Matrix) {
+        mesh.draw(transform);
+    }
+
     /// Draws a solid 3D cube.
     pub fn draw_cube(&self, position: Vector3, width: f32, height: f32, length: f32, color: Color) {
         unsafe {
@@ -235,6 +252,230 @@ impl<'a> Render3DContext<'a> {
     }
 }
 
+/// A retained GPU-resident 3D mesh backed by OpenGL VAO and VBO buffers.
+///
+/// Unlike immediate-mode [`Render3DContext::draw_trimesh_buffered`], `GpuMesh` uploads vertex and
+/// optional index buffers to GPU VRAM once and renders the entire mesh in a single draw call.
+/// It can be constructed safely before window initialization (uploading lazily on first draw)
+/// and automatically releases its GPU buffers when dropped.
+pub struct GpuMesh {
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    texcoords: Vec<f32>,
+    colors: Vec<u8>,
+    indices: Option<Vec<u16>>,
+    gpu_handle: std::cell::RefCell<Option<(Mesh, Material)>>,
+    dirty: std::cell::Cell<bool>,
+}
+
+impl GpuMesh {
+    /// Creates a new unindexed [`GpuMesh`] from a slice of [`Vertex3D`]s (3 vertices per triangle).
+    pub fn from_vertices(vertices: &[Vertex3D]) -> Self {
+        let mut mesh = Self {
+            positions: Vec::with_capacity(vertices.len() * 3),
+            normals: Vec::with_capacity(vertices.len() * 3),
+            texcoords: Vec::with_capacity(vertices.len() * 2),
+            colors: Vec::with_capacity(vertices.len() * 4),
+            indices: None,
+            gpu_handle: std::cell::RefCell::new(None),
+            dirty: std::cell::Cell::new(false),
+        };
+        mesh.pack_vertices(vertices);
+        mesh.ensure_uploaded();
+        mesh
+    }
+
+    /// Creates a new indexed [`GpuMesh`] from unique [`Vertex3D`]s and triangle indices (`3` indices per triangle).
+    ///
+    /// Indexed meshes eliminate duplicate vertex data across shared quad/triangle edges.
+    pub fn from_indexed(vertices: &[Vertex3D], indices: &[u16]) -> Self {
+        let mut mesh = Self {
+            positions: Vec::with_capacity(vertices.len() * 3),
+            normals: Vec::with_capacity(vertices.len() * 3),
+            texcoords: Vec::with_capacity(vertices.len() * 2),
+            colors: Vec::with_capacity(vertices.len() * 4),
+            indices: Some(indices.to_vec()),
+            gpu_handle: std::cell::RefCell::new(None),
+            dirty: std::cell::Cell::new(false),
+        };
+        mesh.pack_vertices(vertices);
+        mesh.ensure_uploaded();
+        mesh
+    }
+
+    fn pack_vertices(&mut self, vertices: &[Vertex3D]) {
+        self.positions.clear();
+        self.normals.clear();
+        self.texcoords.clear();
+        self.colors.clear();
+
+        for v in vertices {
+            self.positions.push(v.position.x);
+            self.positions.push(v.position.y);
+            self.positions.push(v.position.z);
+
+            let norm = v.normal.unwrap_or(Vector3::new(0.0, 1.0, 0.0));
+            self.normals.push(norm.x);
+            self.normals.push(norm.y);
+            self.normals.push(norm.z);
+
+            let uv = v.uv.unwrap_or(Vector2::zero());
+            self.texcoords.push(uv.x);
+            self.texcoords.push(uv.y);
+
+            self.colors.push(v.color.r);
+            self.colors.push(v.color.g);
+            self.colors.push(v.color.b);
+            self.colors.push(v.color.a);
+        }
+    }
+
+    /// Updates the vertex attributes of the mesh dynamically.
+    ///
+    /// If the mesh has already been uploaded to the GPU and the vertex count matches,
+    /// its GPU VBOs will be updated in-place via `UpdateMeshBuffer`. If the vertex count
+    /// changed, the GPU buffer is cleanly recreated on the next draw.
+    pub fn update_vertices(&mut self, vertices: &[Vertex3D]) {
+        let prev_count = self.vertex_count();
+        self.pack_vertices(vertices);
+        if vertices.len() != prev_count {
+            self.unload_gpu();
+            self.ensure_uploaded();
+        } else {
+            self.dirty.set(true);
+            if muxutils::is_window_ready() {
+                self.sync_dirty_buffers();
+            }
+        }
+    }
+
+    /// Returns the number of vertices in this mesh.
+    pub fn vertex_count(&self) -> usize {
+        self.positions.len() / 3
+    }
+
+    /// Returns the number of triangles in this mesh.
+    pub fn triangle_count(&self) -> usize {
+        match &self.indices {
+            Some(idx) => idx.len() / 3,
+            None => self.vertex_count() / 3,
+        }
+    }
+
+    /// Returns `true` if the mesh uses an index buffer.
+    pub fn is_indexed(&self) -> bool {
+        self.indices.is_some()
+    }
+
+    /// Returns `true` if the mesh has been uploaded to GPU VRAM.
+    pub fn is_uploaded(&self) -> bool {
+        self.gpu_handle.borrow().is_some()
+    }
+
+    fn ensure_uploaded(&self) {
+        if !muxutils::is_window_ready() || self.vertex_count() == 0 {
+            return;
+        }
+        if self.gpu_handle.borrow().is_some() {
+            if self.dirty.get() {
+                self.sync_dirty_buffers();
+            }
+            return;
+        }
+
+        let mut rl_mesh = Mesh {
+            vertexCount: self.vertex_count() as i32,
+            triangleCount: self.triangle_count() as i32,
+            vertices: self.positions.as_ptr() as *mut f32,
+            texcoords: self.texcoords.as_ptr() as *mut f32,
+            normals: self.normals.as_ptr() as *mut f32,
+            colors: self.colors.as_ptr() as *mut u8,
+            ..Default::default()
+        };
+        if let Some(ref idx) = self.indices {
+            rl_mesh.indices = idx.as_ptr() as *mut u16;
+        }
+
+        unsafe {
+            UploadMesh(&mut rl_mesh, true);
+            // Clear CPU pointers so UnloadMesh only frees GPU VAO/VBOs and not Rust Vec allocations
+            rl_mesh.vertices = std::ptr::null_mut();
+            rl_mesh.texcoords = std::ptr::null_mut();
+            rl_mesh.normals = std::ptr::null_mut();
+            rl_mesh.colors = std::ptr::null_mut();
+            rl_mesh.indices = std::ptr::null_mut();
+
+            let material = LoadMaterialDefault();
+            *self.gpu_handle.borrow_mut() = Some((rl_mesh, material));
+            self.dirty.set(false);
+        }
+    }
+
+    fn sync_dirty_buffers(&self) {
+        if let Some((rl_mesh, _)) = *self.gpu_handle.borrow() {
+            unsafe {
+                UpdateMeshBuffer(
+                    rl_mesh,
+                    0,
+                    self.positions.as_ptr() as *const std::os::raw::c_void,
+                    (self.positions.len() * std::mem::size_of::<f32>()) as i32,
+                    0,
+                );
+                UpdateMeshBuffer(
+                    rl_mesh,
+                    1,
+                    self.texcoords.as_ptr() as *const std::os::raw::c_void,
+                    (self.texcoords.len() * std::mem::size_of::<f32>()) as i32,
+                    0,
+                );
+                UpdateMeshBuffer(
+                    rl_mesh,
+                    2,
+                    self.normals.as_ptr() as *const std::os::raw::c_void,
+                    (self.normals.len() * std::mem::size_of::<f32>()) as i32,
+                    0,
+                );
+                UpdateMeshBuffer(
+                    rl_mesh,
+                    3,
+                    self.colors.as_ptr() as *const std::os::raw::c_void,
+                    self.colors.len() as i32,
+                    0,
+                );
+            }
+            self.dirty.set(false);
+        }
+    }
+
+    fn unload_gpu(&self) {
+        if let Some((rl_mesh, _)) = self.gpu_handle.borrow_mut().take()
+            && muxutils::is_window_ready()
+        {
+            unsafe {
+                UnloadMesh(rl_mesh);
+            }
+        }
+    }
+
+    pub(crate) fn draw(&self, transform: Matrix) {
+        if !muxutils::is_window_ready() || self.vertex_count() == 0 {
+            return;
+        }
+        self.ensure_uploaded();
+        if let Some((rl_mesh, material)) = *self.gpu_handle.borrow() {
+            unsafe {
+                DrawMesh(rl_mesh, material, transform);
+            }
+        }
+    }
+}
+
+impl Drop for GpuMesh {
+    fn drop(&mut self) {
+        self.unload_gpu();
+    }
+}
+
 /// A 3D vertex with position, color, and optional normal and texture coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex3D {
@@ -334,5 +575,37 @@ mod tests {
         assert_eq!(v.color, RED);
         assert_eq!(v.normal, Some(Vector3::new(0.0, 1.0, 0.0)));
         assert_eq!(v.uv, Some(Vector2::new(0.5, 0.5)));
+    }
+
+    #[test]
+    fn test_gpu_mesh_unindexed_and_indexed() {
+        let verts = [
+            Vertex3D::new(Vector3::new(0.0, 0.0, 0.0), RED),
+            Vertex3D::new(Vector3::new(1.0, 0.0, 0.0), GREEN),
+            Vertex3D::new(Vector3::new(1.0, 0.0, 1.0), BLUE),
+            Vertex3D::new(Vector3::new(0.0, 0.0, 1.0), YELLOW),
+        ];
+        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+        let indexed_mesh = GpuMesh::from_indexed(&verts, &indices);
+        assert_eq!(indexed_mesh.vertex_count(), 4);
+        assert_eq!(indexed_mesh.triangle_count(), 2);
+        assert!(indexed_mesh.is_indexed());
+        assert!(!indexed_mesh.is_uploaded()); // Headless test mode
+
+        let mut unindexed_mesh = GpuMesh::from_vertices(&verts[0..3]);
+        assert_eq!(unindexed_mesh.vertex_count(), 3);
+        assert_eq!(unindexed_mesh.triangle_count(), 1);
+        assert!(!unindexed_mesh.is_indexed());
+
+        // Dynamic vertex update
+        let updated_verts = [
+            Vertex3D::new(Vector3::new(0.0, 2.0, 0.0), WHITE),
+            Vertex3D::new(Vector3::new(1.0, 2.0, 0.0), WHITE),
+            Vertex3D::new(Vector3::new(1.0, 2.0, 1.0), WHITE),
+        ];
+        unindexed_mesh.update_vertices(&updated_verts);
+        assert_eq!(unindexed_mesh.vertex_count(), 3);
+        assert_eq!(unindexed_mesh.positions[1], 2.0);
     }
 }
