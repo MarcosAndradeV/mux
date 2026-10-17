@@ -248,10 +248,12 @@ impl Scene<AppState> for PauseOverlayScene {
 
         let resume_btn = Button::new("Resume (P)");
         let reset_pos_btn = Button::new("Reset Pos");
+        let exit_btn = Button::new("Exit");
 
         StackLayout::new(&[
             ("btn_pause", &resume_btn),
             ("btn_pause", &reset_pos_btn),
+            ("btn_pause", &exit_btn),
         ])
         .place(style, "btn_row");
 
@@ -261,6 +263,10 @@ impl Scene<AppState> for PauseOverlayScene {
         if reset_pos_btn.clicked() {
             state.cube_pos = Vector3::zero();
             return SceneAction::Pop;
+        }
+        if exit_btn.clicked() {
+            request_exit();
+            return SceneAction::None
         }
         SceneAction::None
     }

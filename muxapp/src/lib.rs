@@ -432,6 +432,9 @@ impl<Context> App<Context> {
         }
 
         while !window_should_close() {
+            if is_exit_requested() {
+                break;
+            }
             let window_w = get_screen_width();
             let window_h = get_screen_height();
 

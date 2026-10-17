@@ -607,6 +607,18 @@ pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usiz
     obj.get_val_or(path, default)
 }
 
+static EXIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Requested application exit.
+pub fn request_exit() {
+    EXIT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Returns `true` if window close was requested.
+pub fn is_exit_requested() -> bool {
+    EXIT_REQUESTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 static UI_INPUT_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Enables or disables UI element hit-testing and mouse interactions globally.

@@ -265,6 +265,7 @@ pub struct GpuMesh {
     colors: Vec<u8>,
     indices: Option<Vec<u16>>,
     gpu_handle: std::cell::RefCell<Option<(Mesh, Material)>>,
+    gpu_capacity: std::cell::Cell<usize>,
     dirty: std::cell::Cell<bool>,
 }
 
@@ -278,6 +279,7 @@ impl GpuMesh {
             colors: Vec::with_capacity(vertices.len() * 4),
             indices: None,
             gpu_handle: std::cell::RefCell::new(None),
+            gpu_capacity: std::cell::Cell::new(0),
             dirty: std::cell::Cell::new(false),
         };
         mesh.pack_vertices(vertices);
@@ -296,6 +298,7 @@ impl GpuMesh {
             colors: Vec::with_capacity(vertices.len() * 4),
             indices: Some(indices.to_vec()),
             gpu_handle: std::cell::RefCell::new(None),
+            gpu_capacity: std::cell::Cell::new(0),
             dirty: std::cell::Cell::new(false),
         };
         mesh.pack_vertices(vertices);
@@ -332,19 +335,41 @@ impl GpuMesh {
 
     /// Updates the vertex attributes of the mesh dynamically.
     ///
-    /// If the mesh has already been uploaded to the GPU and the vertex count matches,
-    /// its GPU VBOs will be updated in-place via `UpdateMeshBuffer`. If the vertex count
-    /// changed, the GPU buffer is cleanly recreated on the next draw.
+    /// If the mesh has already been uploaded to the GPU and the new vertex count fits within
+    /// the allocated GPU VBO capacity, its buffers are updated in-place via `UpdateMeshBuffer`
+    /// without destroying or recreating the VAO. If the vertex count exceeds the current GPU
+    /// capacity, the buffer is reallocated with 1.5x headroom to prevent VAO thrashing.
     pub fn update_vertices(&mut self, vertices: &[Vertex3D]) {
-        let prev_count = self.vertex_count();
+        let new_count = vertices.len();
         self.pack_vertices(vertices);
-        if vertices.len() != prev_count {
-            self.unload_gpu();
-            self.ensure_uploaded();
-        } else {
+
+        if new_count == 0 {
+            if let Some((ref mut rl_mesh, _)) = *self.gpu_handle.borrow_mut() {
+                rl_mesh.vertexCount = 0;
+                rl_mesh.triangleCount = 0;
+            }
+            self.dirty.set(false);
+            return;
+        }
+
+        let current_cap = self.gpu_capacity.get();
+        if !self.is_indexed() && self.gpu_handle.borrow().is_some() && new_count <= current_cap {
+            if let Some((ref mut rl_mesh, _)) = *self.gpu_handle.borrow_mut() {
+                rl_mesh.vertexCount = new_count as i32;
+                rl_mesh.triangleCount = (new_count / 3) as i32;
+            }
             self.dirty.set(true);
             if muxutils::raylib::is_window_ready() {
                 self.sync_dirty_buffers();
+            }
+        } else {
+            self.unload_gpu();
+            if muxutils::raylib::is_window_ready() {
+                // Allocate 1.5x headroom (rounded to a multiple of 3) so fluctuating
+                // dynamic meshes (such as procedural props/towns) do not thrash VAOs.
+                let raw = (new_count * 3 / 2).max(new_count + 3072);
+                let grown_cap = raw.div_ceil(3) * 3;
+                self.upload_with_capacity(grown_cap);
             }
         }
     }
@@ -370,6 +395,57 @@ impl GpuMesh {
     /// Returns `true` if the mesh has been uploaded to GPU VRAM.
     pub fn is_uploaded(&self) -> bool {
         self.gpu_handle.borrow().is_some()
+    }
+
+    fn upload_with_capacity(&mut self, capacity_vertices: usize) {
+        let active_verts = self.vertex_count();
+        let active_tris = self.triangle_count();
+        if !muxutils::raylib::is_window_ready() || active_verts == 0 {
+            return;
+        }
+        let alloc_verts = capacity_vertices.max(active_verts);
+        if alloc_verts > active_verts {
+            self.positions.resize(alloc_verts * 3, 0.0);
+            self.normals.resize(alloc_verts * 3, 0.0);
+            self.texcoords.resize(alloc_verts * 2, 0.0);
+            self.colors.resize(alloc_verts * 4, 0);
+        }
+
+        let mut rl_mesh = Mesh {
+            vertexCount: alloc_verts as i32,
+            triangleCount: (alloc_verts / 3) as i32,
+            vertices: self.positions.as_ptr() as *mut f32,
+            texcoords: self.texcoords.as_ptr() as *mut f32,
+            normals: self.normals.as_ptr() as *mut f32,
+            colors: self.colors.as_ptr() as *mut u8,
+            ..Default::default()
+        };
+        if let Some(ref idx) = self.indices {
+            rl_mesh.indices = idx.as_ptr() as *mut u16;
+        }
+
+        unsafe {
+            UploadMesh(&mut rl_mesh, true);
+            rl_mesh.vertices = std::ptr::null_mut();
+            rl_mesh.texcoords = std::ptr::null_mut();
+            rl_mesh.normals = std::ptr::null_mut();
+            rl_mesh.colors = std::ptr::null_mut();
+            rl_mesh.indices = std::ptr::null_mut();
+            rl_mesh.vertexCount = active_verts as i32;
+            rl_mesh.triangleCount = active_tris as i32;
+
+            let material = LoadMaterialDefault();
+            *self.gpu_handle.borrow_mut() = Some((rl_mesh, material));
+            self.gpu_capacity.set(alloc_verts);
+            self.dirty.set(false);
+        }
+
+        if alloc_verts > active_verts {
+            self.positions.truncate(active_verts * 3);
+            self.normals.truncate(active_verts * 3);
+            self.texcoords.truncate(active_verts * 2);
+            self.colors.truncate(active_verts * 4);
+        }
     }
 
     fn ensure_uploaded(&self) {
@@ -407,6 +483,7 @@ impl GpuMesh {
 
             let material = LoadMaterialDefault();
             *self.gpu_handle.borrow_mut() = Some((rl_mesh, material));
+            self.gpu_capacity.set(self.vertex_count());
             self.dirty.set(false);
         }
     }
@@ -455,6 +532,7 @@ impl GpuMesh {
                 UnloadMesh(rl_mesh);
             }
         }
+        self.gpu_capacity.set(0);
     }
 
     pub(crate) fn draw(&self, transform: Matrix) {
