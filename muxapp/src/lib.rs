@@ -79,7 +79,7 @@ pub struct App<Context> {
     style_file: Option<PathBuf>,
     fps: i32,
     audio_device: bool,
-    exit_key: Option<Option<KeyboardKey>>,
+    exit_key: Option<KeyboardKey>,
     cursor_mode: CursorMode,
     init_context: Box<dyn FnOnce() -> Context + 'static>,
 }
@@ -176,14 +176,14 @@ impl<Context> App<Context> {
     }
 
     /// Safely configures the key that closes the application window (passing `None` disables `KEY_ESCAPE` exit).
-    pub fn set_exit_key(mut self, key: Option<KeyboardKey>) -> Self {
+    pub fn set_exit_key(mut self, key: KeyboardKey) -> Self {
         self.exit_key = Some(key);
         self
     }
 
     /// Safely disables the default `KEY_ESCAPE` window-close shortcut so `KEY_ESCAPE` can be used for pause menus.
     pub fn disable_exit_key(mut self) -> Self {
-        self.exit_key = Some(None);
+        self.exit_key = None;
         self
     }
 
@@ -331,8 +331,10 @@ impl<Context> App<Context> {
         );
         set_config_flags(&[FLAG_WINDOW_RESIZABLE]);
         init_window(width, height, cstr!(&title));
-        if let Some(key_opt) = exit_key {
-            muxutils::set_exit_key(key_opt);
+        if let Some(key) = exit_key {
+            muxutils::raylib::set_exit_key(key);
+        } else {
+            muxutils::disable_exit_key();
         }
         muxutils::set_cursor_mode(cursor_mode);
         if audio_device {
@@ -598,7 +600,7 @@ mod tests {
         assert_eq!(app.title, "Configured App");
         assert_eq!(app.fps, 60);
         assert!(app.audio_device);
-        assert_eq!(app.exit_key, Some(None));
+        assert_eq!(app.exit_key, None);
         assert_eq!(app.cursor_mode, CursorMode::Captured);
         assert_eq!(app.style_file, Some(PathBuf::from("custom.gss")));
         assert!(app.update.is_some());

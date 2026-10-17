@@ -216,7 +216,7 @@ pub fn is_rect_on_screen(rec: raylib::Rectangle) -> bool {
     if rec.width <= 0.0 || rec.height <= 0.0 {
         rec.x >= 0.0 && rec.x <= screen.width && rec.y >= 0.0 && rec.y <= screen.height
     } else {
-        check_collision_recs(rec, screen)
+        raylib::check_collision_recs(rec, screen)
     }
 }
 
@@ -607,92 +607,6 @@ pub fn get_usize_field(obj: &gss::Object, path: &[&str], default: usize) -> usiz
     obj.get_val_or(path, default)
 }
 
-/// Returns true if the window has been initialized successfully.
-pub fn is_window_ready() -> bool {
-    unsafe { raylib::IsWindowReady() }
-}
-
-/// Returns true if the render texture is valid (GPU framebuffer allocated).
-pub fn is_render_texture_valid(target: raylib::RenderTexture2D) -> bool {
-    unsafe { raylib::IsRenderTextureValid(target) }
-}
-
-/// Unloads render texture from GPU memory (framebuffer).
-pub fn unload_render_texture(target: raylib::RenderTexture2D) {
-    unsafe {
-        raylib::UnloadRenderTexture(target);
-    }
-}
-
-/// Loads a render texture (framebuffer) with the given dimensions.
-pub fn load_render_texture(width: i32, height: i32) -> raylib::RenderTexture2D {
-    unsafe { raylib::LoadRenderTexture(width, height) }
-}
-
-/// Initializes render texture for drawing.
-pub fn begin_texture_mode(target: raylib::RenderTexture2D) {
-    unsafe {
-        raylib::BeginTextureMode(target);
-    }
-}
-
-/// Ends drawing to render texture.
-pub fn end_texture_mode() {
-    unsafe {
-        raylib::EndTextureMode();
-    }
-}
-
-/// Draws a part of a texture (defined by a rectangle) with 'pro' parameters.
-pub fn draw_texture_pro(
-    texture: raylib::Texture2D,
-    source: raylib::Rectangle,
-    dest: raylib::Rectangle,
-    origin: raylib::Vector2,
-    rotation: f32,
-    tint: raylib::Color,
-) {
-    unsafe {
-        raylib::DrawTexturePro(texture, source, dest, origin, rotation, tint);
-    }
-}
-
-/// Draws a rectangle with a `Rectangle` struct.
-pub fn draw_rectangle_rec(rec: raylib::Rectangle, color: raylib::Color) {
-    unsafe {
-        raylib::DrawRectangleRec(rec, color);
-    }
-}
-
-/// Draws a rectangle using Vector2 position and size.
-pub fn draw_rectangle_v(position: raylib::Vector2, size: raylib::Vector2, color: raylib::Color) {
-    unsafe {
-        raylib::DrawRectangleV(position, size, color);
-    }
-}
-
-/// Checks collision between two rectangles.
-pub fn check_collision_recs(rec1: raylib::Rectangle, rec2: raylib::Rectangle) -> bool {
-    unsafe { raylib::CheckCollisionRecs(rec1, rec2) }
-}
-
-/// Checks collision between point and rectangle.
-pub fn check_collision_point_rec(point: raylib::Vector2, rec: raylib::Rectangle) -> bool {
-    unsafe { raylib::CheckCollisionPointRec(point, rec) }
-}
-
-/// Draws a circle with integer center and float radius.
-pub fn draw_circle(center_x: i32, center_y: i32, radius: f32, color: raylib::Color) {
-    unsafe {
-        raylib::DrawCircle(center_x, center_y, radius, color);
-    }
-}
-
-/// Loads a texture from an Image.
-pub fn load_texture_from_image(image: raylib::Image) -> raylib::Texture2D {
-    unsafe { raylib::LoadTextureFromImage(image) }
-}
-
 static UI_INPUT_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Enables or disables UI element hit-testing and mouse interactions globally.
@@ -708,21 +622,9 @@ pub fn is_ui_input_enabled() -> bool {
     UI_INPUT_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Safely configures the keyboard key that closes the application window.
-///
-/// Passing `None` disables the automatic exit key (e.g., preventing `KEY_ESCAPE` from terminating the app).
-pub fn set_exit_key(key: Option<raylib::KeyboardKey>) {
-    if is_window_ready() {
-        let code = key.map(|k| k as i32).unwrap_or(0);
-        unsafe {
-            raylib::SetExitKey(code);
-        }
-    }
-}
-
 /// Safely disables the default `KEY_ESCAPE` window-close behavior so `KEY_ESCAPE` can be used for in-game pause menus.
 pub fn disable_exit_key() {
-    set_exit_key(None);
+    raylib::set_exit_key(raylib::KeyboardKey::KEY_NULL);
 }
 
 /// Hardware cursor visibility and capture modes.
@@ -737,58 +639,22 @@ pub enum CursorMode {
     Captured,
 }
 
-/// Safely shows the hardware cursor if the window is ready.
-pub fn show_cursor() {
-    if is_window_ready() {
-        unsafe {
-            raylib::ShowCursor();
-        }
-    }
-}
-
-/// Safely hides the hardware cursor if the window is ready.
-pub fn hide_cursor() {
-    if is_window_ready() {
-        unsafe {
-            raylib::HideCursor();
-        }
-    }
-}
-
 /// Safely applies a [`CursorMode`] (normal, hidden, or captured) when the window is initialized.
 pub fn set_cursor_mode(mode: CursorMode) {
-    if is_window_ready() {
+    if raylib::is_window_ready() {
         match mode {
             CursorMode::Normal => {
                 raylib::enable_cursor();
-                show_cursor();
+                raylib::show_cursor();
             }
             CursorMode::Hidden => {
                 raylib::enable_cursor();
-                hide_cursor();
+                raylib::hide_cursor();
             }
             CursorMode::Captured => {
                 raylib::disable_cursor();
             }
         }
-    }
-}
-
-/// Returns `true` if the mouse cursor is currently hidden/captured.
-pub fn is_cursor_hidden() -> bool {
-    if is_window_ready() {
-        unsafe { raylib::IsCursorHidden() }
-    } else {
-        false
-    }
-}
-
-/// Returns `true` if the application window is currently focused.
-pub fn is_window_focused() -> bool {
-    if is_window_ready() {
-        unsafe { raylib::IsWindowFocused() }
-    } else {
-        true
     }
 }
 
@@ -1310,7 +1176,7 @@ mod tests {
 
         // Safe in headless mode
         disable_exit_key();
-        assert!(!is_cursor_hidden());
-        assert!(is_window_focused());
+        assert!(!raylib::is_cursor_hidden());
+        assert!(raylib::is_window_focused());
     }
 }

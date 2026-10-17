@@ -343,7 +343,7 @@ impl GpuMesh {
             self.ensure_uploaded();
         } else {
             self.dirty.set(true);
-            if muxutils::is_window_ready() {
+            if muxutils::raylib::is_window_ready() {
                 self.sync_dirty_buffers();
             }
         }
@@ -373,7 +373,7 @@ impl GpuMesh {
     }
 
     fn ensure_uploaded(&self) {
-        if !muxutils::is_window_ready() || self.vertex_count() == 0 {
+        if !muxutils::raylib::is_window_ready() || self.vertex_count() == 0 {
             return;
         }
         if self.gpu_handle.borrow().is_some() {
@@ -449,7 +449,7 @@ impl GpuMesh {
 
     fn unload_gpu(&self) {
         if let Some((rl_mesh, _)) = self.gpu_handle.borrow_mut().take()
-            && muxutils::is_window_ready()
+            && muxutils::raylib::is_window_ready()
         {
             unsafe {
                 UnloadMesh(rl_mesh);
@@ -458,7 +458,7 @@ impl GpuMesh {
     }
 
     pub(crate) fn draw(&self, transform: Matrix) {
-        if !muxutils::is_window_ready() || self.vertex_count() == 0 {
+        if !muxutils::raylib::is_window_ready() || self.vertex_count() == 0 {
             return;
         }
         self.ensure_uploaded();

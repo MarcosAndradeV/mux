@@ -292,7 +292,7 @@ dependencies = [
 [[package]]
 name = "raylib"
 version = "0.1.0"
-source = "git+https://github.com/MarcosAndradeV/raylib-rs#28f65c6cb632ad7eba41d04b3ff6dab45dfdfda3"
+source = "git+https://github.com/MarcosAndradeV/raylib-rs#4668cab9c75c3abb5a254d91e3fe2ad69e00a9e5"
 dependencies = [
  "bindgen",
 ]
