@@ -108,7 +108,7 @@ impl Scene<AppState> for MainScene {
         SceneAction::None
     }
 
-    fn draw_3d(&mut self, state: &AppState) {
+    fn draw_3d(&mut self, state: &mut AppState) {
         let camera = self.orbit_cam.to_camera_3d();
         draw_3d(camera, |d3| {
             d3.draw_grid(20, 1.0);

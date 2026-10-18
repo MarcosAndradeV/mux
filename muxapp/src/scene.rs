@@ -51,7 +51,7 @@ pub trait Scene<Context> {
     }
 
     /// Called during the 3D rendering pass.
-    fn draw_3d(&mut self, _ctx: &Context) {}
+    fn draw_3d(&mut self, _ctx: &mut Context) {}
 
     /// Called during the 2D rendering pass to lay out and render user interfaces.
     ///
