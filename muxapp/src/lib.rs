@@ -510,6 +510,8 @@ impl<Context> App<Context> {
         }
 
         drop(context);
+        drop(input);
+        drop(scenes);
         muxui::clear_texture_cache();
         if audio_device {
             log_info!("MUX: Closing audio device");
